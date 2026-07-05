@@ -1,0 +1,185 @@
+---
+title: "Family App"
+slug: "family-app"
+tagline: "The AI assistant my own household runs on. No public users, no demo data. Real memory, real failover, real observability, because it has to actually work every day."
+description: "A React Native / Expo mobile app that acts as the orchestration layer across our family's calendar, reminders, budget, and meal planning. An AI chat assistant reads device and household context and reasons over it, backed by a dual-scope memory layer, a 3-provider failover chain, a generic retry-queue-plus-circuit-breaker wrapper for every external call, and a health-check cron that catches silent failures instead of waiting for someone to notice."
+whyThisStack: "This had to run on my wife's phone every day, not just in a demo. React Native + Expo was the only realistic path to a real iOS app with native calendar and reminders access (EventKit) and, later, real Siri App Intents, without maintaining a separate native codebase. The backend is a Vercel-deployed Node service using the Vercel AI SDK's tool-calling loop, which meant the same tool definitions worked unchanged across Claude, OpenAI, and xAI when I added provider failover. Supabase covers auth, Postgres, and row-level security in 1 hosted piece instead of 3. None of this was theoretical: it replaced an earlier WhatsApp-bot version of the same assistant that had a habit of dropping operations and going silent during provider outages, and this rebuild exists specifically to close those failure modes."
+primaryStack:
+  - TypeScript
+  - React Native (Expo SDK 52)
+  - Swift (App Intents)
+  - Node.js
+  - Vercel AI SDK
+  - Supabase (Postgres + Auth + RLS)
+  - Mem0 Platform
+  - Claude (+ OpenAI, xAI Grok via failover)
+domains:
+  - Agentic AI
+  - Mobile / Native Integration
+  - Systems Reliability
+  - Observability
+aiAssistNote: "Spec-driven across 35 specs, built with Claude Code: I wrote every spec and reviewed every diff, Claude Code wrote most of the implementation. The memory-scoping design, the failover chain, the observability fixes, and the Siri App Intents work below all came out of that spec-plan-implement-review loop."
+order: 5
+draft: false
+numbers:
+  monthsLive: 2
+  infra:
+    - TypeScript / Node.js on Vercel
+    - React Native + Expo SDK 52
+    - Supabase Postgres (RLS)
+    - Mem0 Platform (dual-scope memory)
+  auth: "Supabase Auth (email/password) + per-provider API keys (Anthropic, OpenAI, xAI, Mem0, YNAB, Resend) via Vercel env"
+  specCount: 35
+skills:
+  - name: "Dual-Scope Memory Layer"
+    domain: "Agentic AI / Memory Systems"
+    decision: "The assistant's memory needed to tell 2 different kinds of facts apart: things true of 1 person and things true of the whole household. I split storage into a user scope (keyed per family member, personal preferences and communication style) and a family scope (keyed per household, shared routines and facts), searched both in parallel per message, and merged the results into the assistant's context."
+    broke: "Before this, memory was flat. A preference set by 1 family member had no scope boundary, so nothing stopped it from leaking into another member's suggestions, and there was no way to distinguish 'the assistant learned this from a conversation' from 'someone explicitly told it to remember this.'"
+    measured: "Tested with 2 members setting conflicting preferences in the same category and confirmed each member's queries only reflected their own scope. Separately, forced a 5-second delay against the memory service to test the 3-second timeout cutoff, and confirmed chat latency stayed within 500ms of the no-memory baseline."
+    fixed: "Added scope-keyed storage (`user:{id}` / `family:{id}`), a timeout wrapper around every memory call so a slow or dead memory service can never delay a chat response, and structured failure logging so a silent memory outage shows up in logs instead of just quietly returning nothing forever."
+  - name: "Multi-Provider AI Failover"
+    domain: "Systems Reliability"
+    decision: "Every chat message and every scheduled job's AI call went through a single hardcoded provider. I built an ordered fallback chain instead: Claude primary, then OpenAI, then xAI Grok, each with its own timeout, retrying only on retriable failures (429, 500, 502, 503, timeouts) and passing 400-class errors straight through since those are bugs, not outages."
+    broke: "The predecessor version of this assistant (a WhatsApp bot) had exactly 1 provider wired in. A provider outage didn't produce an error message, it produced nothing: a scheduled job would silently fail and the household would just never get that day's update."
+    measured: "Simulated a primary-provider outage with a test-mode env flag, sent chat messages through it, and checked structured logs for provider name, which attempts failed, latency per attempt, and a failover flag, across both interactive chat and scheduled jobs."
+    fixed: "Built the 3-tier chain with per-provider timeouts and a standing simulated-outage test path, so failover is something I can verify on demand instead of something I hope works the next time a provider actually goes down."
+  - name: "Silent-Failure Observability"
+    domain: "Observability"
+    decision: "An AI call can return HTTP 200 with empty text and no usable tool output, which looks like success to everything downstream. I made that specific shape count as an error instead of a stored success, added it to the existing error tracker, and added a 15-minute cron that scans every household for repeated failures, stuck conversations, open circuit breakers, and disabled background jobs."
+    broke: "That empty-response shape was the root cause of a failure that ran for days before anyone noticed, because nothing distinguished it from a normal successful turn. It just sat in the conversation history looking fine."
+    measured: "Forced an empty-text, no-tool-result response in a test conversation and confirmed the error tracker caught it and the user saw a clear fallback message instead of blank output. Checked the health endpoint separately, confirming it reports pass/warn/fail per component (database, background jobs, circuit breakers) instead of a single up/down flag."
+    fixed: "Converted the empty-response case from a silent success into a tracked, alertable error, added a cooldown-gated push notification so repeat failures for the same household don't spam duplicate alerts, and added structured per-interaction logging (conversation id, provider, latency, tool-call count, error type) so the next incident is a log search instead of a guess."
+  - name: "Native Siri / App Intents Integration"
+    domain: "Mobile / Native Integration"
+    decision: "The app's voice layer started as URL-scheme shortcuts that had to be manually configured. I replaced that with 6 real iOS App Intents, written in Swift and injected through a custom Expo config plugin, that register themselves with Siri and Spotlight automatically on install, plus 4 home-screen quick actions, without hand-maintaining a parallel native project."
+    broke: "The deep-link listener those intents needed to target was only half-wired, left over from an earlier feature that never finished the navigation-layer plumbing. Voice commands had nowhere reliable to land."
+    measured: "Tested all 6 registered phrases across cold launch, backgrounded, and foregrounded app states, and separately verified the 1 free-form intent ('ask about X') correctly extracts and sends the spoken text, accounting for normal Siri transcription accuracy rather than expecting it to be perfect."
+    fixed: "Finished the deep-link routing so every recognized path lands on the right screen, added a fallback to the default tab for anything unrecognized instead of an error or crash, and confirmed the app degrades gracefully on iOS versions below the App Intents minimum: it just loses the voice layer, deep links and quick actions keep working."
+  - name: "Generic Retry Queue + Circuit Breaker"
+    domain: "Systems Reliability"
+    decision: "Every integration (calendar writes, budget updates, memory storage) was handling failure differently, if at all. I built 1 generic `withResilience()` wrapper providing retry-with-exponential-backoff, a durable Supabase-backed retry queue, and a per-integration circuit breaker, so any external call gets the same failure handling without hand-rolling it at each call site."
+    broke: "The predecessor bot's failure mode for a failed external call was that the operation just disappeared. A dropped calendar write or a dropped budget update had no queue, no retry, and no record that it had ever been attempted."
+    measured: "Forced 5 consecutive failures against 1 integration and confirmed the circuit opened, meaning later calls were skipped immediately instead of each one burning a 25-plus second timeout. Waited out the cooldown window and confirmed the half-open test call closed the circuit again on success."
+    fixed: "Every transient failure now lands in a durable queue with an idempotency key, retries on a backoff schedule, and moves to a dead-letter state with a push notification if it exhausts its attempts. The failure mode changed from silently lost to queued, retried, or explicitly surfaced."
+---
+
+{/* CONFIRM: numbers.monthsLive (2) is the git history span for this repo (first commit 2026-03-13, most recent commit seen 2026-05-21). Confirm whether the app is still in daily household use today and whether "months live" should track from first production use instead of first commit. */}
+
+## Why this exists
+
+Every family logistics tool I'd tried treated calendar, reminders, budget, and meal planning as separate apps that didn't talk to each other. This app is the opposite bet: 1 assistant that reads calendar and reminder data straight off the device, talks to the household budget API, holds a memory layer scoped per person and per household, and reasons over all of it in a single chat interface. It grew out of an earlier WhatsApp-based version of the same idea that worked until it didn't: a provider outage or a dropped API call would fail silently, and nobody found out until something was visibly missing. This rebuild's entire engineering story is about closing exactly those silent-failure paths.
+
+## Architecture
+
+<div style="overflow-x: auto; margin: 2rem 0;">
+<svg viewBox="0 0 960 760" width="100%" style="min-width: 720px; display: block; font-family: var(--font-mono);" role="img" aria-labelledby="arch-title arch-desc">
+  <title id="arch-title">Family App reliability pipeline</title>
+  <desc id="arch-desc">Device and cloud integrations route through a generic resilience wrapper with retry queue and circuit breaker, into a Vercel chat backend, through a 3-tier AI provider failover chain, and out through structured logging and a health-check cron that either reaches the mobile app normally or fires an admin alert on detected failure.</desc>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)"></path>
+    </marker>
+    <marker id="arrow-muted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--fg-muted)"></path>
+    </marker>
+  </defs>
+
+  {/* Row 1: integrations */}
+  <g>
+    <rect x="20" y="20" width="210" height="58" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+    <text x="125" y="44" text-anchor="middle" font-size="13" fill="var(--fg)">EventKit</text>
+    <text x="125" y="62" text-anchor="middle" font-size="11" fill="var(--fg-muted)">calendar + reminders</text>
+
+    <rect x="250" y="20" width="210" height="58" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+    <text x="355" y="44" text-anchor="middle" font-size="13" fill="var(--fg)">Mem0</text>
+    <text x="355" y="62" text-anchor="middle" font-size="11" fill="var(--fg-muted)">dual-scope memory</text>
+
+    <rect x="480" y="20" width="210" height="58" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+    <text x="585" y="44" text-anchor="middle" font-size="13" fill="var(--fg)">YNAB</text>
+    <text x="585" y="62" text-anchor="middle" font-size="11" fill="var(--fg-muted)">household budget API</text>
+
+    <rect x="710" y="20" width="230" height="58" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+    <text x="825" y="44" text-anchor="middle" font-size="13" fill="var(--fg)">Siri / App Intents</text>
+    <text x="825" y="62" text-anchor="middle" font-size="11" fill="var(--fg-muted)">voice commands, deep links</text>
+  </g>
+
+  {/* Arrows converging to resilience wrapper */}
+  <path d="M 125 78 L 125 100 L 480 100 L 480 122" fill="none" stroke="var(--accent)" stroke-width="1.5"></path>
+  <path d="M 355 78 L 355 100 L 480 100 L 480 122" fill="none" stroke="var(--accent)" stroke-width="1.5"></path>
+  <path d="M 585 78 L 585 100 L 480 100 L 480 122" fill="none" stroke="var(--accent)" stroke-width="1.5"></path>
+  <path d="M 825 78 L 825 100 L 480 100 L 480 122" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
+
+  {/* Resilience wrapper */}
+  <rect x="280" y="122" width="400" height="56" rx="6" fill="var(--bg-elev)" stroke="var(--accent-dim)" stroke-width="1.5"></rect>
+  <text x="480" y="146" text-anchor="middle" font-size="13" fill="var(--fg)">withResilience()</text>
+  <text x="480" y="164" text-anchor="middle" font-size="11" fill="var(--fg-muted)">retry queue + circuit breaker, generic per integration</text>
+
+  <path d="M 480 178 L 480 200" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
+
+  {/* Vercel API */}
+  <rect x="280" y="200" width="400" height="56" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="480" y="224" text-anchor="middle" font-size="13" fill="var(--fg)">Vercel API / Chat Backend</text>
+  <text x="480" y="242" text-anchor="middle" font-size="11" fill="var(--fg-muted)">Node.js, Vercel AI SDK tool loop</text>
+
+  <path d="M 480 256 L 480 278" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
+
+  {/* Provider fallback chain */}
+  <g>
+    <rect x="120" y="278" width="220" height="60" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+    <text x="230" y="304" text-anchor="middle" font-size="13" fill="var(--fg)">Claude</text>
+    <text x="230" y="322" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">primary, 25s timeout</text>
+
+    <rect x="370" y="278" width="220" height="60" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+    <text x="480" y="304" text-anchor="middle" font-size="13" fill="var(--fg)">OpenAI</text>
+    <text x="480" y="322" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">fallback, 20s timeout</text>
+
+    <rect x="620" y="278" width="220" height="60" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+    <text x="730" y="304" text-anchor="middle" font-size="13" fill="var(--fg)">xAI Grok</text>
+    <text x="730" y="322" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">fallback, 10s timeout</text>
+  </g>
+
+  <path d="M 340 308 L 370 308" fill="none" stroke="var(--fg-muted)" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrow-muted)"></path>
+  <text x="355" y="298" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">on failure</text>
+
+  <path d="M 590 308 L 620 308" fill="none" stroke="var(--fg-muted)" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrow-muted)"></path>
+  <text x="605" y="298" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">on failure</text>
+
+  <path d="M 230 338 L 230 360 L 480 360 L 480 382" fill="none" stroke="var(--accent)" stroke-width="1.5"></path>
+  <path d="M 480 338 L 480 382" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
+  <path d="M 730 338 L 730 360 L 480 360 L 480 382" fill="none" stroke="var(--accent)" stroke-width="1.5"></path>
+
+  {/* Structured log + health check */}
+  <rect x="280" y="382" width="400" height="56" rx="6" fill="var(--bg-elev)" stroke="var(--accent-dim)" stroke-width="1.5"></rect>
+  <text x="480" y="406" text-anchor="middle" font-size="13" fill="var(--fg)">Structured Log + Health-Check Cron</text>
+  <text x="480" y="424" text-anchor="middle" font-size="11" fill="var(--fg-muted)">runs every 15 minutes across all households</text>
+
+  {/* Split: normal path vs alert path */}
+  <path d="M 380 438 L 380 460 L 230 460 L 230 482" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
+  <path d="M 580 438 L 580 460 L 730 460 L 730 482" fill="none" stroke="var(--fg-muted)" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrow-muted)"></path>
+  <text x="700" y="474" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">failure detected</text>
+
+  {/* Mobile app */}
+  <rect x="80" y="482" width="300" height="60" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="230" y="508" text-anchor="middle" font-size="13" fill="var(--fg)">Mobile App (Expo / React Native)</text>
+  <text x="230" y="526" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">Today · Chat · Planner · Activity</text>
+
+  {/* Admin alert (conditional) */}
+  <rect x="590" y="482" width="280" height="60" rx="6" fill="none" stroke="var(--fg-muted)" stroke-width="1.5" stroke-dasharray="4 3"></rect>
+  <text x="730" y="508" text-anchor="middle" font-size="13" fill="var(--fg)">Admin Push Alert</text>
+  <text x="730" y="526" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">cooldown-gated, no duplicate spam</text>
+
+  <path d="M 230 542 L 230 564" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
+
+  {/* Native layer */}
+  <rect x="60" y="564" width="340" height="56" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="230" y="588" text-anchor="middle" font-size="13" fill="var(--fg)">Native iOS Layer</text>
+  <text x="230" y="606" text-anchor="middle" font-size="11" fill="var(--fg-muted)">6 Siri App Intents · 4 quick actions · deep links</text>
+</svg>
+</div>
+
+Every external call, device-native or cloud, goes through 1 generic resilience wrapper before it reaches anything else: a retry queue with exponential backoff and a per-integration circuit breaker, so a failing integration degrades instead of cascading. The chat backend's own AI calls get the same treatment through a 3-tier provider chain: Claude first, OpenAI and then xAI Grok only on retriable failures, never on a 400-class bug. A structured log line and a 15-minute health-check cron sit downstream of all of it, watching for the specific failure shape (a technically-successful, functionally-empty response) that used to go unnoticed for days. Most runs end quietly at the mobile app. A detected failure instead produces a cooldown-gated push alert, so the household never has to be the one to notice something broke.
+
+## What shipped
+
+35 specs took this from a WhatsApp bot that quietly dropped operations to a mobile app with a memory layer that keeps personal and household facts properly scoped, a 3-provider failover chain with a standing test path to verify it on demand, a generic retry-queue-and-circuit-breaker wrapper covering every external integration, a health-check cron that turns a silent failure into a 15-minute alert, and a native Siri and App Intents layer that finished the deep-link wiring an earlier feature had left half-done. It runs on 1 real household's calendar, reminders, and budget every day. There's no public URL for this one; it holds real family data, so the repo and the live instance both stay private. What's shown here is the engineering, not the household.
