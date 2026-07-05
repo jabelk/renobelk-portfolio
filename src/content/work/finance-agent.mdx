@@ -1,0 +1,185 @@
+---
+title: "Finance Agent"
+slug: "finance-agent"
+tagline: "5 LLM personas argue every trade idea. A deterministic judge decides what's worth telling me. The agent never places an order."
+description: "A long-running agentic system that polls market data, SEC filings, and options chains, argues the bull and bear case with 5 parallel LLM personas, and gates every recommendation through a deterministic rulebook plus an LLM judge before anything reaches my phone. It never executes a trade. I do that by hand, at my actual brokerage."
+whyThisStack: "The whole system runs on a single Intel NUC at home, so infrastructure choices favored local-first over hosted. SQLite in WAL mode skips the cloud database bill and the network dependency; a single-writer queue is simpler to reason about than a connection pool. systemd runs the daemon (Type=notify, a companion timer, LoadCredential for every API key) because the NUC already has it, and the process needs a real supervisor: watchdog pings, clean SIGTERM draining, and an automatic restart after a budget-exhaustion exit. Pydantic AI replaced a hand-rolled agent loop so every persona's output is a typed schema the synthesizer and the judge can reason over directly, not prose to re-parse. And since a research agent whose only visible output is a phone notification can't go dark every time 1 vendor has an outage, every persona and the judge route through a provider string instead of a hardcoded Anthropic call."
+primaryStack:
+  - Python
+  - Pydantic AI
+  - SQLite (WAL)
+  - systemd
+  - Anthropic Claude (+ OpenAI, DeepSeek, Gemini, Groq via routing)
+  - Alpaca Markets (paper trading)
+  - Tradier (options data)
+  - Langfuse (observability)
+domains:
+  - Agentic AI
+  - Finance & Trading Research
+  - AI Safety & Guardrails
+  - Systems Reliability
+aiAssistNote: "It's spec-driven, built with Claude Code across 17 specs (spec, plan, tasks, and a peer-review-remediation pass on several sprints). I wrote every spec and reviewed every diff and every peer-review finding; Claude Code wrote most of the implementation and tests. The multi-provider diagnosis, the trade-safety guardrails, and the evidence-pipeline fixes below all came out of that same spec-plan-implement-review loop, not from hand-typing every line."
+order: 1
+draft: false
+numbers:
+  monthsLive: 3
+  infra:
+    - Python 3.12
+    - SQLite (WAL mode)
+    - systemd on Intel NUC
+    - Pydantic AI
+  auth: "systemd LoadCredential + per-provider API keys (Anthropic, OpenAI, DeepSeek, Gemini, Groq, Alpaca, Tradier)"
+  specCount: 17
+skills:
+  - name: "Multi-Provider LLM Routing"
+    domain: "Agentic AI"
+    decision: "Every persona (bull, bear, risk, reward, speculative) plus the judge step called Anthropic directly, with the model ID hardcoded per module. That's a single-vendor dependency: an Anthropic outage would silently kill the only output the operator sees on their phone. I added a provider:model_id string per persona slot, read from an env var, covering Anthropic, OpenAI, DeepSeek, Gemini, and Groq, with every default preserving the existing Anthropic-only behavior."
+    broke: "Right before this sprint, every persona call had started returning HTTP 400 from Anthropic. No signal existed for whether the bug was Anthropic-specific or a problem in the shared prompt construction that any provider would reject."
+    measured: "Routed just the bull persona to openai:gpt-5.4 and left the other 4 personas on their still-failing Anthropic defaults, then ran a session against the same evidence pool and compared results side by side in the journal output."
+    fixed: "The OpenAI persona came back with a valid structured result while the other 4 still 400'd, so the bug was Anthropic-specific, not universal. That closed a real ambiguity in 1 run instead of a guess. The same sprint added fail-fast startup validation (naming every missing provider key at once) and a per-provider price table so the daily budget cap couldn't silently under-bill a misrouted call."
+  - name: "Grounded Evidence Pipeline"
+    domain: "RAG & Prompt Engineering"
+    decision: "The 5-persona agent loop shipped end to end in an earlier sprint, but every persona reasoned over a stub evidence pool instead of real data. I replaced it with a typed EvidencePool (price and bars, broker positions, SEC filings, research signals, options data) fetched once per session and shared across all 5 personas, plus a narrow drill-in tool that checks the pool first and only falls back to a live source for the claims the prefix doesn't cover."
+    broke: "The stub-only sessions before this sprint hit 0% on the citation-coverage target. Personas had nothing real to point to, so grounded output was structurally impossible no matter how the prompts were worded."
+    measured: "Tracked citation coverage per session (at least 1 real citation per persona output, targeting 80% of sessions) and prompt-cache hit ratio per model cohort, since Anthropic's Sonnet and Haiku personas don't share a cache and had to be measured separately."
+    fixed: "Made the evidence-pool serialization deterministic (sorted keys, second-resolution ISO timestamps) and moved the cache-point marker after every variant token, because timestamp drift between personas was quietly collapsing the cache hit ratio below target. Also wrapped the 5-way persona dispatch in a 120-second timeout so 1 hung persona couldn't stall the whole session."
+  - name: "Idle-Poll Trigger Detection"
+    domain: "Systems Reliability"
+    decision: "The always-on agent loop (systemd, 15-minute tick) shipped with a stub trigger function that always returned nothing. I replaced it with a hybrid detector: a wall-clock research-window pass (morning and afternoon windows, weekday-gated, cooldown-gated) plus a signal-boost pass that opens an extra session when a fresh research signal lands outside those windows."
+    broke: "The agent had been running on the NUC for days, looking completely healthy in the logs, and had pushed 0 briefings to my phone the entire time. The session table was empty. A loop that looks alive but never decides to act is functionally dead, and nothing in the systemd status surfaced that."
+    measured: "Forced the clock to a weekday morning against an empty session table and confirmed the trigger returned the watchlist ticker, then confirmed it returned nothing 5 minutes later with the cooldown active. Every window, weekday, and cooldown edge case, including the March daylight-saving jump, got a deterministic unit test against a fake clock instead of the real one."
+    fixed: "The 24-hour deploy bar became concrete: at least 1 real session row and 1 message-history row from the autonomous loop, not from a manual CLI run. A new startup log line reports the resolved window and cooldown config, so a misconfigured env var shows up in the logs instead of failing silently again."
+  - name: "Defense-in-Depth Trade Safety"
+    domain: "AI Safety"
+    decision: "The agent's entire job is producing research briefings, never placing trades, but 1 bad import or a well-crafted prompt injection is all it takes for an autonomous loop to call a live order-placement endpoint. I built 2 independent layers instead of 1: a static-analysis test that fails the build if any module imports a trading-write method from the Alpaca SDK, plus a runtime allowlist that only ever registers read-only tool names with the agent and rejects anything else before the call reaches the wrapped function."
+    broke: "A static import check alone only catches source drift at test time. It does nothing about a prompt-injection attempt to fabricate a disallowed tool name at runtime, since that name never shows up as a Python import."
+    measured: "3 separate checks, each aimed at a different failure mode: static analysis for import drift, an integration test with a fake Alpaca client asserting no trading-write method is ever called during a full session, and an allowlist-rejection test that dispatches a forbidden tool name directly and asserts it gets rejected before the wrapped function runs."
+    fixed: "Every trading-write attempt gets blocked from 2 directions that don't share a failure mode. The same discipline carried into later evidence work: a document-read path that resolves user-influenced file paths, rejects symlinks, and caps file size, because the agent-only-reads guarantee needed the same treatment as the agent-never-trades one."
+---
+
+{/* CONFIRM: numbers.monthsLive (3) reflects the active spec-driven build span found in git history (first commit 2026-02-16, most recent 2026-05-19). Confirm whether the NUC deployment is still running today or has been paused since, and adjust the number or its meaning if you'd rather it represent something else. */}
+
+## Why this exists
+
+Every morning I want 1 honest answer for a stock I hold: is anything worth paying attention to today, and if so, what's the actual evidence behind it. Reading every 10-K, earnings call, options chain, and price move myself doesn't scale, and a single-model summary tends to agree with whatever it's shown. Finance Agent is a long-running agent that reads the real data, argues both sides of the trade with 5 separate personas, gates the result through a deterministic rulebook and an LLM judge, and pushes a grounded briefing to my phone. It never places a trade. I do that by hand, at my actual brokerage, after reading the briefing.
+
+## Architecture
+
+<div style="overflow-x: auto; margin: 2rem 0;">
+<svg viewBox="0 0 960 610" width="100%" style="min-width: 720px; display: block; font-family: var(--font-mono);" role="img" aria-labelledby="arch-title arch-desc">
+  <title id="arch-title">Finance Agent pipeline</title>
+  <desc id="arch-desc">Data sources feed a typed evidence pool, which 5 parallel LLM personas reason over. A deterministic synthesizer and an LLM judge gate the result before it reaches a phone notification. The agent never calls a trade-write endpoint; a human places any trade manually.</desc>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)"></path>
+    </marker>
+    <marker id="arrow-muted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--fg-muted)"></path>
+    </marker>
+  </defs>
+
+  {/* Row 1: data sources */}
+  <g>
+    <rect x="20" y="20" width="210" height="58" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+    <text x="125" y="44" text-anchor="middle" font-size="13" fill="var(--fg)">Alpaca</text>
+    <text x="125" y="62" text-anchor="middle" font-size="11" fill="var(--fg-muted)">market data + positions</text>
+
+    <rect x="250" y="20" width="210" height="58" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+    <text x="355" y="44" text-anchor="middle" font-size="13" fill="var(--fg)">SEC EDGAR</text>
+    <text x="355" y="62" text-anchor="middle" font-size="11" fill="var(--fg-muted)">10-K / 10-Q / 8-K filings</text>
+
+    <rect x="480" y="20" width="210" height="58" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+    <text x="585" y="44" text-anchor="middle" font-size="13" fill="var(--fg)">Tradier</text>
+    <text x="585" y="62" text-anchor="middle" font-size="11" fill="var(--fg-muted)">options chain + IV rank</text>
+
+    <rect x="710" y="20" width="230" height="58" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+    <text x="825" y="44" text-anchor="middle" font-size="13" fill="var(--fg)">Research DB</text>
+    <text x="825" y="62" text-anchor="middle" font-size="11" fill="var(--fg-muted)">signals + safety state</text>
+  </g>
+
+  {/* Arrows converging to evidence pool */}
+  <path d="M 125 78 L 125 100 L 480 100 L 480 122" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
+  <path d="M 355 78 L 355 100 L 480 100 L 480 122" fill="none" stroke="var(--accent)" stroke-width="1.5"></path>
+  <path d="M 585 78 L 585 100 L 480 100 L 480 122" fill="none" stroke="var(--accent)" stroke-width="1.5"></path>
+  <path d="M 825 78 L 825 100 L 480 100 L 480 122" fill="none" stroke="var(--accent)" stroke-width="1.5"></path>
+
+  {/* Evidence pool */}
+  <rect x="280" y="122" width="400" height="56" rx="6" fill="var(--bg-elev)" stroke="var(--accent-dim)" stroke-width="1.5"></rect>
+  <text x="480" y="146" text-anchor="middle" font-size="13" fill="var(--fg)">Evidence Pool</text>
+  <text x="480" y="164" text-anchor="middle" font-size="11" fill="var(--fg-muted)">typed, deterministic, cached per source</text>
+
+  {/* Arrows fanning out to 5 personas */}
+  <path d="M 480 178 L 480 195 L 110 195 L 110 216" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
+  <path d="M 480 178 L 480 195 L 295 195 L 295 216" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
+  <path d="M 480 178 L 480 216" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
+  <path d="M 480 178 L 480 195 L 665 195 L 665 216" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
+  <path d="M 480 178 L 480 195 L 850 195 L 850 216" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
+
+  {/* Row: 5 personas */}
+  <g>
+    <rect x="25" y="216" width="170" height="60" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+    <text x="110" y="242" text-anchor="middle" font-size="13" fill="var(--fg)">Bull</text>
+    <text x="110" y="260" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">provider-routable</text>
+
+    <rect x="210" y="216" width="170" height="60" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+    <text x="295" y="242" text-anchor="middle" font-size="13" fill="var(--fg)">Bear</text>
+    <text x="295" y="260" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">provider-routable</text>
+
+    <rect x="395" y="216" width="170" height="60" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+    <text x="480" y="242" text-anchor="middle" font-size="13" fill="var(--fg)">Risk</text>
+    <text x="480" y="260" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">provider-routable</text>
+
+    <rect x="580" y="216" width="170" height="60" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+    <text x="665" y="242" text-anchor="middle" font-size="13" fill="var(--fg)">Reward</text>
+    <text x="665" y="260" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">provider-routable</text>
+
+    <rect x="765" y="216" width="170" height="60" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+    <text x="850" y="242" text-anchor="middle" font-size="13" fill="var(--fg)">Speculative</text>
+    <text x="850" y="260" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">provider-routable</text>
+  </g>
+
+  {/* Arrows converging to synthesizer */}
+  <path d="M 110 276 L 110 300 L 480 300 L 480 322" fill="none" stroke="var(--accent)" stroke-width="1.5"></path>
+  <path d="M 295 276 L 295 300 L 480 300 L 480 322" fill="none" stroke="var(--accent)" stroke-width="1.5"></path>
+  <path d="M 480 276 L 480 322" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
+  <path d="M 665 276 L 665 300 L 480 300 L 480 322" fill="none" stroke="var(--accent)" stroke-width="1.5"></path>
+  <path d="M 850 276 L 850 300 L 480 300 L 480 322" fill="none" stroke="var(--accent)" stroke-width="1.5"></path>
+
+  {/* Synthesizer */}
+  <rect x="280" y="322" width="400" height="56" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="480" y="346" text-anchor="middle" font-size="13" fill="var(--fg)">Deterministic Synthesizer</text>
+  <text x="480" y="364" text-anchor="middle" font-size="11" fill="var(--fg-muted)">enforces human-approval + policy-check gates</text>
+
+  <path d="M 480 378 L 480 400" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
+
+  {/* Judge */}
+  <rect x="330" y="400" width="300" height="56" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="480" y="424" text-anchor="middle" font-size="13" fill="var(--fg)">LLM Judge</text>
+  <text x="480" y="442" text-anchor="middle" font-size="11" fill="var(--fg-muted)">score 0-3, gate-violation check</text>
+
+  <path d="M 480 456 L 480 478" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
+  <text x="500" y="472" font-size="10.5" fill="var(--fg-muted)">passes gate</text>
+
+  {/* ntfy */}
+  <rect x="350" y="478" width="260" height="50" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="480" y="500" text-anchor="middle" font-size="13" fill="var(--fg)">ntfy.sh</text>
+  <text x="480" y="517" text-anchor="middle" font-size="11" fill="var(--fg-muted)">push notification to phone</text>
+
+  {/* Human boundary */}
+  <path d="M 480 528 L 480 552" fill="none" stroke="var(--fg-muted)" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrow-muted)"></path>
+  <text x="500" y="546" font-size="10.5" fill="var(--fg-muted)">human-only step</text>
+
+  <rect x="300" y="552" width="360" height="48" rx="6" fill="none" stroke="var(--fg-muted)" stroke-width="1.5" stroke-dasharray="4 3"></rect>
+  <text x="480" y="573" text-anchor="middle" font-size="13" fill="var(--fg)">I read it, then place any trade myself</text>
+  <text x="480" y="591" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">Schwab / Alpaca, manual, outside the agent's write boundary</text>
+</svg>
+</div>
+
+Evidence flows in 1 direction: real market data, filings, options, and research signals feed a typed evidence pool once per session. All 5 personas reason over that same pool in parallel, each independently routable to a different LLM provider. A deterministic synthesizer combines their typed output and enforces every heuristic's approval and policy-check gates before an LLM judge scores the result against a fixed rubric. Only a briefing that clears both gates reaches ntfy.sh and my phone. Nothing in this pipeline can place an order. That boundary is enforced twice: once at import time (a static-analysis test) and once at tool-dispatch time (a runtime allowlist).
+
+## What shipped
+
+By the 23rd spec the agent had closed out the original "make it useful" backlog. Multi-provider routing means an Anthropic outage can't take the whole system dark. The evidence pipeline replaced an earlier sprint's stub data with real filings, prices, and options. The idle-poll trigger fixed an agent that ran forever without ever deciding to act. A daily portfolio snapshot rounds out the picture for trend review. 17 specs, each with its own spec, plan, tasks, and research trail, drove the build end to end with Claude Code.
+
+The system still runs entirely on paper-trading credentials. That's a deliberate constraint, not a placeholder: the whole point was to prove the reasoning pipeline before ever touching a real order.
