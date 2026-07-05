@@ -2,7 +2,7 @@
 title: "MTG Commander AI"
 slug: "mtgcommander"
 tagline: "A RAG pipeline turned 32,807 podcast transcript chunks into 41,790 structured insights, then Claude Sonnet cross-checked every one against real card text and deleted 5,236 it had invented."
-description: "mtgcommander.ai is a live Magic: The Gathering Commander deck-building assistant. A Python RAG and MCP-tool backend, grounded in 33K+ cards and transcripts from 10+ podcast and YouTube shows, powers a SvelteKit chat frontend that builds full 100-card decks, checks them against EDHREC and bracket data, and hands off to Mana Pool for the actual card purchase. It runs on real Stripe subscriptions, a real marketplace integration, and a real Discord community, not a demo."
+description: "mtgcommander.ai is a live Magic: The Gathering Commander deck-building assistant. A Python RAG and MCP-tool backend, grounded in 33K+ cards and transcripts from 10+ podcast and YouTube shows, powers a SvelteKit chat frontend that builds full 100-card decks, checks them against EDHREC and bracket data, and hands off to Mana Pool for the actual card purchase through a live affiliate link. It's free forever, funded by Patreon pledges and Ko-fi tips, with a real Discord community, not a demo."
 liveUrl: "https://mtgcommander.ai"
 whyThisStack: "The backend and knowledge pipeline are Python: the raw material is 33K+ cards from Scryfall plus tens of thousands of podcast and YouTube transcript chunks, and Python's ecosystem for batch LLM calls, embeddings, and direct Postgres access fit that better than anything else considered. The web frontend is SvelteKit with the Vercel AI SDK, not Next.js. The project's own feature-branch folder is literally named 026-nextjs-frontend, a name left over from the initial plan before SvelteKit's smaller client bundle and native streaming primitives won the actual build. The 'Vercel' in the SDK's name is just a library brand, not the deploy target: both the SvelteKit frontend and the Python backend deploy to Railway via a Node adapter, not to Vercel. Supabase Postgres with pgvector holds the 33K-card embedding index and the structured-insight knowledge base in the same database that already handles auth and conversation storage, instead of standing up a separate vector store for 1 extra table. FastMCP exposes the deck-building tool surface (search_cards, find_similar_cards, analyze_cube, build_commander_deck, and more) as the same interface any MCP client, not just this web app, could connect to directly."
 primaryStack:
@@ -12,7 +12,7 @@ primaryStack:
   - OpenAI text-embedding-3-small
   - Supabase (Postgres + pgvector + Auth)
   - SvelteKit + Vercel AI SDK v6
-  - Stripe, Mana Pool, Patreon + Ko-fi
+  - Mana Pool (affiliate) + Patreon + Ko-fi
   - Railway
 domains:
   - Agentic AI
@@ -32,7 +32,7 @@ numbers:
     - SvelteKit + Vercel AI SDK v6
     - Railway
   auth: "Supabase Auth (Google, Discord, Twitch, email) + RLS per user"
-  payments: "Stripe (Free / Builder $5 / Pro $10) + Mana Pool checkout + Patreon/Ko-fi"
+  payments: "Free forever, no paid tiers; Mana Pool affiliate checkout + Patreon (4 pledge tiers) + Ko-fi tips"
   community: "Discord (4 Patreon-tier roles, auto-synced on pledge/cancel)"
   specCount: 164
 skills:
@@ -53,7 +53,7 @@ skills:
     decision: "The conversational agent is a FastMCP tool server exposing the deck-building surface (search_cards, get_card, find_similar_cards, analyze_cube, build_commander_deck, search_expert_knowledge, and more) as the same interface Claude Desktop or any other MCP client could connect to directly, not a bespoke API only the web chat can call. After launch, instead of guessing which tools the model actually needed, I audited real usage: 293 tool calls across 50 logged conversations."
     broke: "The audit showed a long tail of dead weight: 12 of the 30 exposed tools recorded 0 calls across all 50 conversations, while search_cards and get_card alone accounted for 160 of the 293 calls (55%). A flat, always-available tool list makes tool selection noisier for the model and gives no signal about which capability is actually doing anything."
     measured: "Built a frequency table (calls and percentage per tool) directly from the 50-conversation sample, then classified each tool as keep, merge, internalize, or needs-routing based on that data instead of intuition. search_expert_knowledge had 16 calls but got reclassified INTERNALIZE, since it turned out to be called by build_commander_deck and brainstorm_cards internally, never directly by the model in response to a user ask."
-    fixed: "Zero- and near-zero-call tools got consolidated by their real verdict: explore_commanders (4 calls) merged into search_commanders_by_strategy, get_card_price (1 call) merged into price_card_list, and suggest_creator_decks (0 calls) got removed as a standalone tool since brainstorm_cards already baked it in. The remaining 0-call tools (rules lookups, post-build analysis) moved behind phase-based activeTools routing, so they only surface once their precondition step has actually run instead of sitting in front of the model on every single turn."
+    fixed: "0- and near-0-call tools got consolidated by their real verdict: explore_commanders (4 calls) merged into search_commanders_by_strategy, get_card_price (1 call) merged into price_card_list, and suggest_creator_decks (0 calls) got removed as a standalone tool since brainstorm_cards already baked it in. The remaining 0-call tools (rules lookups, post-build analysis) moved behind phase-based activeTools routing, so they only surface once their precondition step has actually run instead of sitting in front of the model on every single turn."
   - name: "Persisted Conversation History"
     domain: "Systems Reliability"
     decision: "Before this feature, every page refresh wiped the chat entirely. I built full conversation persistence: every message and tool invocation auto-saves to Postgres scoped to the authenticated user, a sidebar restores the full workspace state (including rendered tool results) on reload, and conversations auto-title from the first message or the commander name if a deck was built."
@@ -68,14 +68,14 @@ skills:
 
 ## Why this exists
 
-A friend of mine, Wes, was building a homebrew Magic: The Gathering cube by hand. He had 10 defined archetypes and a card list, but no easy way to check whether his black-green reanimator support was actually deep enough or just felt deep. Commander deckbuilding has the same problem at a bigger scale. EDHREC gives you popularity data, not the reasoning a good player would give you for why a specific card fits your specific 99. mtgcommander.ai is a conversational assistant that reads real card data (33K+ Scryfall cards) and real expert reasoning (transcript chunks from 10+ podcast and YouTube shows), builds full Commander decks against a stated budget and bracket, and hands the actual purchase off to Mana Pool. It runs as a live subscription product today, not a prototype.
+A friend of mine, Wes, was building a homebrew Magic: The Gathering cube by hand. He had 10 defined archetypes and a card list, but no easy way to check whether his black-green reanimator support was actually deep enough or just felt deep. Commander deckbuilding has the same problem at a bigger scale. EDHREC gives you popularity data, not the reasoning a good player would give you for why a specific card fits your specific 99. mtgcommander.ai is a conversational assistant that reads real card data (33K+ Scryfall cards) and real expert reasoning (transcript chunks from 10+ podcast and YouTube shows), builds full Commander decks against a stated budget and bracket, and hands the actual purchase off to Mana Pool through an affiliate link. It runs as a live, free product today, not a prototype, funded by Patreon and Ko-fi instead of a paywall.
 
 ## Architecture
 
 <div style="overflow-x: auto; margin: 2rem 0;">
 <svg viewBox="0 0 960 640" width="100%" style="min-width: 720px; display: block; font-family: var(--font-mono);" role="img" aria-labelledby="arch-title arch-desc">
   <title id="arch-title">mtgcommander.ai pipeline</title>
-  <desc id="arch-desc">Card data, podcast transcripts, and deck imports feed a Python extraction and embedding pipeline into a shared Postgres and pgvector knowledge base. A FastMCP tool server exposes that knowledge base as discrete tools that a SvelteKit chat agent orchestrates through usage-informed routing. A Stripe soft-limit gate manages subscription tiers, and the actual card purchase completes on Mana Pool, outside this app.</desc>
+  <desc id="arch-desc">Card data, podcast transcripts, and deck imports feed a Python extraction and embedding pipeline into a shared Postgres and pgvector knowledge base. A FastMCP tool server exposes that knowledge base as discrete tools that a SvelteKit chat agent orchestrates through usage-informed routing. The product is free forever, with optional Patreon and Ko-fi support, and the actual card purchase completes on Mana Pool through an affiliate link, outside this app.</desc>
 
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -162,10 +162,10 @@ A friend of mine, Wes, was building a homebrew Magic: The Gathering cube by hand
 
   <path d="M 480 454 L 480 476" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
 
-  {/* Stripe gate */}
+  {/* Support layer */}
   <rect x="280" y="476" width="400" height="56" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
-  <text x="480" y="500" text-anchor="middle" font-size="13" fill="var(--fg)">Stripe Soft-Limit Gate</text>
-  <text x="480" y="518" text-anchor="middle" font-size="11" fill="var(--fg-muted)">Free, Builder $5/mo, Pro $10/mo</text>
+  <text x="480" y="500" text-anchor="middle" font-size="13" fill="var(--fg)">Optional Support Layer</text>
+  <text x="480" y="518" text-anchor="middle" font-size="11" fill="var(--fg-muted)">Free forever; Patreon pledges + Ko-fi tips fund it</text>
 
   {/* Human/marketplace boundary */}
   <path d="M 480 532 L 480 556" fill="none" stroke="var(--fg-muted)" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrow-muted)"></path>
@@ -177,10 +177,10 @@ A friend of mine, Wes, was building a homebrew Magic: The Gathering cube by hand
 </svg>
 </div>
 
-Card data, podcast and YouTube transcripts, and cube or deck imports feed a Python pipeline that chunks, embeds, and extracts structured insights, validating every mechanic claim against the card's own oracle text before anything is stored. All of it lives in 1 Supabase Postgres database with pgvector, alongside auth and conversation history, not a separate vector store. A FastMCP tool server exposes that knowledge base as discrete, individually callable tools (the same tools a raw MCP client like Claude Desktop could call directly), and a SvelteKit chat frontend running the Vercel AI SDK orchestrates those tools through phase-based routing informed by a real usage audit. A Stripe soft-limit gate manages Free, Builder, and Pro tiers, and when a user is ready to buy the deck, the purchase itself completes on Mana Pool, not inside this app.
+Card data, podcast and YouTube transcripts, and cube or deck imports feed a Python pipeline that chunks, embeds, and extracts structured insights, validating every mechanic claim against the card's own oracle text before anything is stored. All of it lives in 1 Supabase Postgres database with pgvector, alongside auth and conversation history, not a separate vector store. A FastMCP tool server exposes that knowledge base as discrete, individually callable tools (the same tools a raw MCP client like Claude Desktop could call directly), and a SvelteKit chat frontend running the Vercel AI SDK orchestrates those tools through phase-based routing informed by a real usage audit. The product is free forever, funded by optional Patreon pledges and Ko-fi tips instead of a paywall, and when a user is ready to buy the deck, the purchase itself completes on Mana Pool through an affiliate link, not inside this app.
 
 ## What shipped
 
-By spec 164 the platform had grown from a favor for Wes's cube into a subscription product: Stripe tiers, a Mana Pool checkout handoff, a Patreon-synced Discord community, and a knowledge base that validates itself before storing anything new. The hallucination cleanup alone processed 33,040 insight-card pairs, deleted 5,236 confirmed hallucinations, and left the extraction pipeline validating every new insight against oracle text before storage, not just the backfill. The tool-routing audit replaced guesswork with 293 real tool calls across 50 conversations, consolidating or rerouting 12 tools that had 0 calls in the sample. All of these fixes came out of the same spec, plan, tasks, and research loop with Claude Code, not a rewrite from scratch.
+By spec 164 the platform had grown from a favor for Wes's cube into a real free product: a Mana Pool affiliate checkout handoff, a Patreon-synced Discord community, and a knowledge base that validates itself before storing anything new. The hallucination cleanup alone processed 33,040 insight-card pairs, deleted 5,236 confirmed hallucinations, and left the extraction pipeline validating every new insight against oracle text before storage, not just the backfill. The tool-routing audit replaced guesswork with 293 real tool calls across 50 conversations, consolidating or rerouting 12 tools that had 0 calls in the sample. All of these fixes came out of the same spec, plan, tasks, and research loop with Claude Code, not a rewrite from scratch.
 
 The extraction pipeline still runs as a batch process, not real time. That's deliberate: validating a new insight against a card's oracle text before it ever reaches a user matters more than shipping it a few minutes faster.
