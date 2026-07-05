@@ -2,7 +2,7 @@
 title: "NovelFlame"
 slug: "novelflame"
 tagline: "Built a token economy and a CCBill payment integration across 2 specs. Watched competitor reviews name counting-currency UX as the #1 complaint in the category. Ripped out both and shipped a flat subscription instead."
-description: "A production SvelteKit app I designed, built, and operate as the sole developer: interactive fiction generation across 4 LLM providers, gated behind a 2-layer content-safety filter. Billing runs through Stripe and Apple IAP, deployed through a CI pipeline I built from scratch. 189 specs drove the build with Claude Code, including a security audit that caught 4 real financial bugs and a monetization reset that killed an entire payment integration once the data said to."
+description: "A production SvelteKit app I designed, built, and operate as the sole developer: interactive fiction generation across multiple LLM providers, gated behind a 2-layer content-safety filter. Billing runs through Stripe and Apple IAP, deployed through a CI pipeline I built from scratch. 189 specs drove the build with Claude Code, including a security audit that caught 4 real financial bugs and a monetization reset that killed an entire payment integration once the data said to."
 whyThisStack: "SvelteKit's server-first routing puts every auth and content-access gate at the server layer instead of scattered client checks, which mattered once a security audit found the auth guard excluded all /api routes from protection entirely. Supabase paired with Drizzle keeps the schema in version-controlled TypeScript instead of a GUI-managed database, important when a solo operator is the only reviewer of every migration. Cloudflare R2 skips egress fees for a product that generates images and video on every story. OpenTofu over Terraform was a license call, not a technical one: Terraform's 2023 move to the Business Source License made a state file holding database passwords and API keys a bigger risk than a drop-in open-source replacement with native state encryption. Railway's Docker-based deploy meant the Docker build itself, not a platform-specific buildpack, was the thing worth optimizing, which is why the multi-stage Dockerfile and GitHub Actions layer caching became their own spec."
 primaryStack:
   - SvelteKit 2 / Svelte 5
@@ -14,6 +14,8 @@ primaryStack:
   - Stripe + Apple IAP
   - OpenTofu (IaC)
   - Docker + GitHub Actions + GHCR
+  - PostHog (product analytics)
+  - Loops.so (lifecycle + newsletter email)
   - Railway
 domains:
   - Full-Stack SaaS Engineering
@@ -70,7 +72,7 @@ skills:
   - name: "2-Layer Content-Safety Filter"
     domain: "AI Safety & Trust"
     decision: "Every AI-generated story, chat message, and image prompt needed a safety gate before it reaches a reader, so I built a hybrid filter instead of relying only on the upstream models' own guardrails: the OpenAI Moderation API as the primary classifier, plus custom keyword and pattern rules for platform-specific categories the moderation API doesn't cover."
-    broke: "The upstream AI providers already run their own content safety, but those thresholds can change without notice and differ by provider, so a filter that only trusted a model's refusal behavior had no way to catch a policy gap consistently across 4 different providers."
+    broke: "The upstream AI providers already run their own content safety, but those thresholds can change without notice and differ by provider, so a filter that only trusted a model's refusal behavior had no way to catch a policy gap consistently across every provider."
     measured: "Set explicit target rates instead of a pass/fail gut check: 100% of explicit prohibited prompts blocked pre-generation, under 1% false-positive rate on legitimate content, and 95%+ catch rate on common evasion techniques like leetspeak and unicode substitution, each checked against a dedicated test set."
     fixed: "Filter actions use a tiered response: a hard block with no override for the highest-risk category, and a soft warning with a suggested rephrase for lower-risk categories. Every action logs a content hash, the rule matched, and the outcome for audit purposes, and a user-facing report button files straight to GitHub Issues, so a solo operator with no admin dashboard still has a working review queue."
 ---
