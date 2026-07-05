@@ -1,0 +1,31 @@
+---
+// SiteFooter — profile links + copyright.
+interface FooterLink {
+  href: string;
+  label: string;
+}
+
+const links: FooterLink[] = [
+  { href: "https://github.com/jabelk", label: "GitHub" },
+  { href: "https://www.linkedin.com/in/renobelk", label: "LinkedIn" },
+  { href: "https://sierracodeco.com", label: "Sierra Code Co" },
+];
+
+const year = new Date().getFullYear();
+---
+
+<footer class="site-footer">
+  <div class="site-footer-inner">
+    <span>
+      {
+        links.map((link, i) => (
+          <>
+            <a href={link.href}>{link.label}</a>
+            {i < links.length - 1 && <span aria-hidden="true"> · </span>}
+          </>
+        ))
+      }
+    </span>
+    <span>&copy; {year} Jason Belk</span>
+  </div>
+</footer>

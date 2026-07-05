@@ -1,0 +1,33 @@
+---
+// SiteHeader — site name + primary nav (Work, About).
+interface NavItem {
+  href: string;
+  label: string;
+}
+
+const navItems: NavItem[] = [
+  { href: "/work/", label: "Work" },
+  { href: "/about/", label: "About" },
+];
+
+const path = Astro.url.pathname;
+---
+
+<header class="site-header">
+  <div class="site-header-inner">
+    <a href="/" class="site-title">Jason Belk</a>
+    <nav class="site-nav" aria-label="Primary">
+      <ul class="site-nav-list">
+        {
+          navItems.map((item) => (
+            <li>
+              <a href={item.href} aria-current={path === item.href ? "page" : undefined}>
+                {item.label}
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+    </nav>
+  </div>
+</header>
