@@ -3,11 +3,14 @@
 interface NavItem {
   href: string;
   label: string;
+  external?: boolean;
 }
 
 const navItems: NavItem[] = [
   { href: "/work/", label: "Work" },
   { href: "/about/", label: "About" },
+  { href: "https://github.com/jabelk", label: "GitHub", external: true },
+  { href: "https://www.linkedin.com/in/renobelk", label: "LinkedIn", external: true },
 ];
 
 const path = Astro.url.pathname;
@@ -21,7 +24,12 @@ const path = Astro.url.pathname;
         {
           navItems.map((item) => (
             <li>
-              <a href={item.href} aria-current={path === item.href ? "page" : undefined}>
+              <a
+                href={item.href}
+                aria-current={!item.external && path === item.href ? "page" : undefined}
+                target={item.external ? "_blank" : undefined}
+                rel={item.external ? "noopener" : undefined}
+              >
                 {item.label}
               </a>
             </li>
