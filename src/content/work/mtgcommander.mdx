@@ -2,7 +2,7 @@
 title: "MTG Commander AI"
 slug: "mtgcommander"
 tagline: "A RAG pipeline turned 32,807 podcast transcript chunks into 41,790 structured insights, then Claude Sonnet cross-checked every one against real card text and deleted 5,236 it had invented."
-description: "mtgcommander.ai is a live Magic: The Gathering Commander deck-building assistant. A Python RAG and MCP-tool backend, grounded in 33K+ cards and transcripts from 10+ podcast and YouTube shows, powers a SvelteKit chat frontend that builds full 100-card decks, checks them against EDHREC and bracket data, and hands off to Mana Pool for the actual card purchase through a live affiliate link. It's free forever, funded by Patreon pledges and Ko-fi tips, with a real Discord community, not a demo."
+description: "mtgcommander.ai is a live Magic: The Gathering Commander deck-building assistant. A Python RAG and MCP-tool backend, grounded in 33K+ cards and transcripts from 10+ podcast and YouTube shows, powers a SvelteKit chat frontend that builds full 100-card decks, checks them against EDHREC and bracket data, and hands off to Mana Pool for the actual card purchase through a live affiliate link. It's free forever, funded by 1 Patreon patron at $20/month plus Ko-fi tips, with a real Discord community, not a demo."
 liveUrl: "https://mtgcommander.ai"
 whyThisStack: "The backend and knowledge pipeline are Python: the raw material is 33K+ cards from Scryfall plus tens of thousands of podcast and YouTube transcript chunks, and Python's ecosystem for batch LLM calls, embeddings, and direct Postgres access fit that better than anything else considered. The web frontend is SvelteKit with the Vercel AI SDK, not Next.js. The project's own feature-branch folder is literally named 026-nextjs-frontend, a name left over from the initial plan before SvelteKit's smaller client bundle and native streaming primitives won the actual build. The 'Vercel' in the SDK's name is just a library brand, not the deploy target: both the SvelteKit frontend and the Python backend deploy to Railway via a Node adapter, not to Vercel. Supabase Postgres with pgvector holds the 33K-card embedding index and the structured-insight knowledge base in the same database that already handles auth and conversation storage, instead of standing up a separate vector store for 1 extra table. FastMCP exposes the deck-building tool surface (search_cards, find_similar_cards, analyze_cube, build_commander_deck, and more) as the same interface any MCP client, not just this web app, could connect to directly."
 primaryStack:
@@ -32,7 +32,7 @@ numbers:
     - SvelteKit + Vercel AI SDK v6
     - Railway
   auth: "Supabase Auth (Google, Discord, Twitch, email) + RLS per user"
-  payments: "Free forever, no paid tiers; Mana Pool affiliate checkout + Patreon (4 pledge tiers) + Ko-fi tips"
+  payments: "Free forever; Patreon (1 patron at $20/mo) + Ko-fi tips + Mana Pool affiliate"
   community: "Discord (4 Patreon-tier roles, auto-synced on pledge/cancel)"
   specCount: 164
 skills:
@@ -68,7 +68,7 @@ skills:
 
 ## Why this exists
 
-A friend of mine, Wes, was building a homebrew Magic: The Gathering cube by hand. He had 10 defined archetypes and a card list, but no easy way to check whether his black-green reanimator support was actually deep enough or just felt deep. Commander deckbuilding has the same problem at a bigger scale. EDHREC gives you popularity data, not the reasoning a good player would give you for why a specific card fits your specific 99. mtgcommander.ai is a conversational assistant that reads real card data (33K+ Scryfall cards) and real expert reasoning (transcript chunks from 10+ podcast and YouTube shows), builds full Commander decks against a stated budget and bracket, and hands the actual purchase off to Mana Pool through an affiliate link. It runs as a live, free product today, not a prototype, funded by Patreon and Ko-fi instead of a paywall.
+A friend of mine, Wes, was building a homebrew Magic: The Gathering cube by hand. He had 10 defined archetypes and a card list, but no easy way to check whether his black-green reanimator support was actually deep enough or just felt deep. Commander deckbuilding has the same problem at a bigger scale. EDHREC gives you popularity data, not the reasoning a good player would give you for why a specific card fits your specific 99. mtgcommander.ai is a conversational assistant that reads real card data (33K+ Scryfall cards) and real expert reasoning (transcript chunks from 10+ podcast and YouTube shows), builds full Commander decks against a stated budget and bracket, and hands the actual purchase off to Mana Pool through an affiliate link. It runs as a live, free product today, not a prototype, funded by 1 Patreon patron at $20/month plus Ko-fi tips instead of a paywall.
 
 ## Architecture
 
@@ -177,7 +177,7 @@ A friend of mine, Wes, was building a homebrew Magic: The Gathering cube by hand
 </svg>
 </div>
 
-Card data, podcast and YouTube transcripts, and cube or deck imports feed a Python pipeline that chunks, embeds, and extracts structured insights, validating every mechanic claim against the card's own oracle text before anything is stored. All of it lives in 1 Supabase Postgres database with pgvector, alongside auth and conversation history, not a separate vector store. A FastMCP tool server exposes that knowledge base as discrete, individually callable tools (the same tools a raw MCP client like Claude Desktop could call directly), and a SvelteKit chat frontend running the Vercel AI SDK orchestrates those tools through phase-based routing informed by a real usage audit. The product is free forever, funded by optional Patreon pledges and Ko-fi tips instead of a paywall, and when a user is ready to buy the deck, the purchase itself completes on Mana Pool through an affiliate link, not inside this app.
+Card data, podcast and YouTube transcripts, and cube or deck imports feed a Python pipeline that chunks, embeds, and extracts structured insights, validating every mechanic claim against the card's own oracle text before anything is stored. All of it lives in 1 Supabase Postgres database with pgvector, alongside auth and conversation history, not a separate vector store. A FastMCP tool server exposes that knowledge base as discrete, individually callable tools (the same tools a raw MCP client like Claude Desktop could call directly), and a SvelteKit chat frontend running the Vercel AI SDK orchestrates those tools through phase-based routing informed by a real usage audit. The product is free forever, funded by optional Patreon support (1 patron at $20/month) and Ko-fi tips instead of a paywall, and when a user is ready to buy the deck, the purchase itself completes on Mana Pool through an affiliate link, not inside this app.
 
 ## What shipped
 
