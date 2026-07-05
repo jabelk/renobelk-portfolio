@@ -49,6 +49,9 @@ const {
           </p>
         )
       }
+      {heroImage && (
+        <img class="showcase-hero" src={heroImage} alt={`${title} product screenshot`} loading="eager" />
+      )}
       <div class="showcase-meta">
         <h2>Why this stack</h2>
         <p>{whyThisStack}</p>
@@ -58,10 +61,6 @@ const {
         <p>{aiAssistNote}</p>
       </div>
     </header>
-
-    {heroImage && (
-      <img class="showcase-hero" src={heroImage} alt={`${title} product screenshot`} loading="eager" />
-    )}
 
     <ByTheNumbers numbers={numbers} />
 
