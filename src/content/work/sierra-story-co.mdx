@@ -1,0 +1,171 @@
+---
+title: "Sierra Story Co"
+slug: "sierra-story-co"
+tagline: "A registered Reno LLC, not a demo. An n8n pipeline turns a recorded life story into a chapter draft and next session's questions, so a solo interviewer can spend the hour listening instead of typing."
+description: "Sierra Story Co. is a memoir-writing business I formed as a Nevada LLC after ghostwriting my dad's life story by hand. An n8n pipeline on a home NUC transcribes each recorded interview, drafts and refines a chapter with an LLM, and automatically generates next session's follow-up questions from a decade-specific research bank. A parallel print pipeline turns the finished manuscript into a KDP paperback, a Lulu hardcover, or a hand-bound leather heirloom, gated by a local preflight check built to catch the failures a print vendor would otherwise reject. The AI here is a drafting and prompting engine, not a research project. The real engineering is the pipeline, the sandboxed automation, and the print QA that keeps a solo operator from re-running hours of vendor rejections by hand."
+liveUrl: "https://sierrastoryco.com"
+whyThisStack: "n8n runs the whole pipeline because a solo operator building a real business, not a research prototype, needs a workflow change to ship in an afternoon: drag a node, redeploy, done. Docker on a spare Intel NUC keeps every client's recorded life story on a LAN-only machine instead of a SaaS vendor's database, which matters more here than for most software since the raw material is someone's memories. Obsidian's plain Markdown vault means the whole product (transcripts, chapter drafts, photos) is just files I can open, diff, and back up myself, with no proprietary export format standing between me and a client's book. Claude and OpenAI are both wired in behind a swappable key file so a provider outage or a model swap never blocks a session review a client is waiting on."
+primaryStack:
+  - n8n
+  - Docker
+  - Obsidian
+  - Anthropic Claude (+ OpenAI)
+  - Pandoc + XeLaTeX
+  - Google Sheets
+  - MacWhisper
+domains:
+  - Workflow Automation
+  - Operations & Client Delivery
+  - Print Production
+  - Small Business Operations
+aiAssistNote: "The chapter drafts, refinement passes, and memory-jogger questions are LLM output (Claude and OpenAI) inside a pipeline I designed, wired, and debugged by hand, with Claude Code assisting on the n8n Code-node JavaScript and the print-pipeline Python and shell scripts. This is an automation and operations build, not a deep ML project. The model calls are a capable drafting and critique engine; the judgment is in the pipeline design, the sandbox workarounds, and the print QA, not in the model itself."
+order: 4
+draft: false
+numbers:
+  monthsLive: 5
+  users: "1 completed memoir (proof of concept); customer acquisition underway"
+  payments: "40/30/30 milestone deposit schedule (signing, midpoint, pre-print), per the signed service agreement"
+  infra:
+    - "n8n (Docker, self-hosted on an Intel NUC)"
+    - "Obsidian vault (Markdown, LAN-only)"
+    - "Pandoc + XeLaTeX print pipeline"
+    - "Google Sheets client tracker"
+  auth: "n8n admin JWT + per-service credential files on a LAN-only NUC (no public exposure); REST API scripted for workflow deploys"
+  marketing: "Live site at sierrastoryco.com (SEO + Search Console), Google Business Profile, founding-member testimonial program, flyer campaign for 55+ communities"
+  specCount: 1
+skills:
+  - name: "n8n Secrets Under a Sandboxed Runtime"
+    domain: "Workflow Automation"
+    decision: "n8n's Code nodes run in a sandboxed VM that always blocks process.env and $env access, with no config flag to unlock it (only require() for specific Node builtins like fs, path, and https can be allowlisted). Instead of storing API keys inside the workflow JSON itself, which n8n exports and shares as one importable file, I wrote provider keys to a JSON file on the same Obsidian vault volume already mounted into the container, and had every LLM-calling Code node read it with fs.readFileSync at the top of the function."
+    broke: "The first attempt used a Set node with a {{ $env.ANTHROPIC_API_KEY }} expression feeding into the Code node, on the assumption that only the Code node's own require() calls were sandboxed. Both the Set node's expression evaluator and the Code node threw the identical 'access to env vars denied' error, so the block wasn't a Code-node quirk. It was a blanket n8n rule with no allowlist override."
+    measured: "Reproduced the failure against both node types directly to confirm it was a hard sandbox rule and not a missing config flag, then checked the fs.readFileSync workaround against every workflow that calls an LLM: chapter drafting, the refinement pass, the memory jogger, the knowledge-graph extractor, and the consistency checker. 5 separate call sites, all reading the same mounted key file."
+    fixed: "Standardized every LLM call site on the same pattern, with a documented one-line regen command that sources the real .env on the host and writes the JSON file the container reads. Switching between Claude and OpenAI, or between the first-draft model and the refinement-pass model, became a file edit with zero redeploy, and the workaround is now the first entry in the project's n8n lessons-learned doc instead of something the next workflow has to rediscover."
+  - name: "Decade-Aware Question Generation, Not a Generic Prompt List"
+    domain: "Content Pipeline Design"
+    decision: "Rather than have the interviewer freehand next-session questions, or reuse the same generic prompt list for every client the way most competitor memoir services do, I chained a memory-jogger step onto the end of the chapter-drafting workflow: an LLM call that takes the finished chapter draft, a transcript excerpt, and the client's birth decade, and produces 8-10 follow-up questions using 6 named elicitation techniques (sensory anchor, place-based, people-centered, contrast, specific moment, dialogue) drawn from a research bank I compiled from oral-history and reminiscence-therapy sources."
+    broke: "The first version of the jogger prompt produced exactly the generic output the research bank had flagged as weaker: 'tell me more about your childhood' style questions with no connection to what the client had actually said."
+    measured: "Read jogger output from several completed sessions against the 6-technique checklist and checked each generated question for whether it named an actual person, place, or event from that specific transcript, versus a swappable placeholder that could apply to any client."
+    fixed: "Rewrote the prompt to require the model tag which technique each question used and anchor it to a specific name, place, or event pulled from the transcript, so a generic question can't pass the format. The step runs automatically after every chapter draft, so the interviewer walks into the next session with a decade-appropriate, transcript-grounded prep sheet instead of one written by hand between sessions."
+  - name: "A Local KDP Preflight Gate, Not the Upload-and-Wait Cycle"
+    domain: "Print Production QA"
+    decision: "Instead of relying on Amazon KDP's own previewer to catch formatting problems (a 10-minute upload-and-wait cycle per attempt), I built a local preflight script that walks every text block on every rendered PDF page via pdftotext's bounding-box output and flags anything crossing KDP's actual rejection thresholds (a 0.375 inch gutter, 0.25 inch outer and top and bottom margins), then wired it as a gate the print build script can't skip."
+    broke: "The first production run, Bill Belk's memoir, hit KDP's rejection queue 3 separate times: a oneside document class put the binding gutter on the wrong side for verso pages, and a closing line on one page ran past the outer margin. Each rejection cost a 10-minute upload, a wait for KDP's review, an edit, and a full rebuild before the next attempt."
+    fixed: "Made the check mandatory: the build script won't produce a vendor-ready file until preflight passes clean, with any override requiring a written reason in a status file. Switching to a twoside, openright layout with a 0.875 inch gutter (more than double KDP's 0.375 inch floor, to leave room for hyphenation) and confirming 0 flagged text blocks locally meant the next upload passed the first time. The same 'catch it before the vendor does' approach also caught photos that would have printed sideways from unread EXIF rotation data, and low-DPI scans, before either reached a printer."
+    measured: "Ran the local preflight against the full rebuilt interior after the layout fix and confirmed 0 flagged text blocks before ever re-uploading to KDP."
+  - name: "Deploying n8n Workflows Without Duplicate Drift"
+    domain: "Systems Reliability"
+    decision: "n8n's CLI import always creates a new workflow record; it never updates an existing one in place, even when the name matches exactly. On a single-operator system already carrying real clients' recorded life stories, I documented and enforced a fixed deploy sequence instead of trusting memory: import the new version, pull its versionId from the REST API, deactivate the old workflow, activate the new one with that versionId, then archive and delete the old copy."
+    broke: "By the 4th iteration of the chapter-drafting workflow, the n8n instance had 4 copies of it sitting in the workflow list, only 1 of which was both active and correct. Nothing in the n8n UI warns you this is happening; import just quietly adds another entry."
+    measured: "Audited the workflow list against the REST API's active flag before and after a deploy to confirm exactly 1 active copy per workflow name, and verified the login flow (the API takes emailOrLdapLoginId, not email) and cookie-based JWT extraction worked reliably enough to script instead of clicking through by hand."
+    fixed: "Wrote the exact archive, deactivate, activate, delete sequence into the project's lessons-learned doc as a repeatable runbook, so a deploy doesn't silently leave 2 active copies of the same workflow double-processing the same webhook on a system handling real clients' recordings."
+---
+
+{/* CONFIRM: paying-client count, books delivered to paying customers, and any revenue to date. As of the source repo's last commit (2026-06-16), Sierra Story Co. had completed 1 memoir (Bill Belk, my father, a free proof-of-concept co-written directly with ChatGPT rather than through the automated interview pipeline) and was still in the "before first paying client" phase, with a flyer campaign for 55+ communities planned for late June 2026. Confirm current status (any signed paying client, revenue, or books delivered since) before this goes live, and update numbers.users accordingly. */}
+
+## Why this exists
+
+I started this to write my dad's life story down before it was gone, sitting with him and turning recordings into chapters by hand. That turned into a question worth testing as an actual business: could an automated pipeline make a professionally produced memoir affordable for retirees who'd never otherwise get one written? Sierra Story Co. is the answer I registered as a Nevada LLC: a real company, with a signed service agreement, a live website, and a pricing structure, not a side experiment. An n8n pipeline on a home NUC handles the repeatable parts (transcription, first-draft chapters, next-session questions, client tracking) so my own hours go into the interview itself and the editing pass, not retyping.
+
+## Architecture
+
+<div style="overflow-x: auto; margin: 2rem 0;">
+<svg viewBox="0 0 960 780" width="100%" style="min-width: 720px; display: block; font-family: var(--font-mono);" role="img" aria-labelledby="arch-title arch-desc">
+  <title id="arch-title">Sierra Story Co. memoir pipeline</title>
+  <desc id="arch-desc">A recorded interview session is transcribed, drafted into a chapter by an LLM, and refined through a critique pass. The refined chapter splits into a memory jogger that feeds next session's questions and a tracker and notification step. Once all chapters are approved, a separate print pipeline compiles the manuscript, runs a local KDP-equivalent preflight gate, and hands the file to a print vendor.</desc>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)"></path>
+    </marker>
+    <marker id="arrow-muted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--fg-muted)"></path>
+    </marker>
+  </defs>
+
+  {/* Interview session (human step) */}
+  <rect x="300" y="20" width="360" height="58" rx="6" fill="none" stroke="var(--fg-muted)" stroke-width="1.5" stroke-dasharray="4 3"></rect>
+  <text x="480" y="44" text-anchor="middle" font-size="13" fill="var(--fg)">In-Home Interview Session</text>
+  <text x="480" y="62" text-anchor="middle" font-size="11" fill="var(--fg-muted)">client + interviewer, recorded on a phone mic</text>
+
+  <path d="M 480 78 L 480 100" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
+
+  {/* MacWhisper */}
+  <rect x="300" y="100" width="360" height="58" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="480" y="124" text-anchor="middle" font-size="13" fill="var(--fg)">MacWhisper Transcription (Mac)</text>
+  <text x="480" y="142" text-anchor="middle" font-size="11" fill="var(--fg-muted)">speech-to-text, local</text>
+
+  <path d="M 480 158 L 480 180" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
+  <text x="500" y="173" font-size="10.5" fill="var(--fg-muted)">webhook POST</text>
+
+  {/* n8n webhook ingest */}
+  <rect x="300" y="180" width="360" height="58" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="480" y="204" text-anchor="middle" font-size="13" fill="var(--fg)">n8n Webhook Ingest</text>
+  <text x="480" y="222" text-anchor="middle" font-size="11" fill="var(--fg-muted)">Docker, self-hosted on the NUC</text>
+
+  <path d="M 480 238 L 480 258" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
+
+  {/* Obsidian vault */}
+  <rect x="280" y="258" width="400" height="56" rx="6" fill="var(--bg-elev)" stroke="var(--accent-dim)" stroke-width="1.5"></rect>
+  <text x="480" y="282" text-anchor="middle" font-size="13" fill="var(--fg)">Obsidian Vault: transcript.md</text>
+  <text x="480" y="300" text-anchor="middle" font-size="11" fill="var(--fg-muted)">per-client folder, plain Markdown, LAN-only</text>
+
+  <path d="M 480 314 L 480 336" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
+
+  {/* LLM chapter draft */}
+  <rect x="300" y="336" width="360" height="58" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="480" y="360" text-anchor="middle" font-size="13" fill="var(--fg)">LLM Chapter Draft</text>
+  <text x="480" y="378" text-anchor="middle" font-size="11" fill="var(--fg-muted)">Claude / OpenAI, per-client voice profile</text>
+
+  <path d="M 480 394 L 480 416" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
+
+  {/* Refine pass */}
+  <rect x="300" y="416" width="360" height="58" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="480" y="440" text-anchor="middle" font-size="13" fill="var(--fg)">Refine Pass (critique + revise)</text>
+  <text x="480" y="458" text-anchor="middle" font-size="11" fill="var(--fg-muted)">scene, voice, sensory detail, pacing, emotion</text>
+
+  {/* fan out to jogger + tracker */}
+  <path d="M 480 474 L 480 485 L 260 485 L 260 496" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
+  <path d="M 480 474 L 480 485 L 720 485 L 720 496" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
+
+  {/* Memory jogger */}
+  <rect x="90" y="496" width="340" height="64" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="260" y="520" text-anchor="middle" font-size="13" fill="var(--fg)">Memory Jogger</text>
+  <text x="260" y="538" text-anchor="middle" font-size="11" fill="var(--fg-muted)">decade-aware, transcript-grounded</text>
+  <text x="260" y="553" text-anchor="middle" font-size="11" fill="var(--fg-muted)">8-10 next-session questions</text>
+
+  {/* Tracker + notification */}
+  <rect x="550" y="496" width="340" height="64" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="720" y="520" text-anchor="middle" font-size="13" fill="var(--fg)">Tracker + Notification</text>
+  <text x="720" y="538" text-anchor="middle" font-size="11" fill="var(--fg-muted)">Google Sheets client tracker</text>
+  <text x="720" y="553" text-anchor="middle" font-size="11" fill="var(--fg-muted)">email via Resend</text>
+
+  {/* Loop back: memory jogger feeds next session */}
+  <path d="M 90 528 L 40 528 L 40 49 L 300 49" fill="none" stroke="var(--fg-muted)" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrow-muted)"></path>
+  <text x="34" y="290" font-size="10.5" fill="var(--fg-muted)" transform="rotate(-90 34 290)">feeds next session's questions</text>
+
+  {/* Down to print production, once all chapters are approved */}
+  <path d="M 480 560 L 480 602" fill="none" stroke="var(--fg-muted)" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrow-muted)"></path>
+  <text x="500" y="585" font-size="10.5" fill="var(--fg-muted)">after all chapters approved</text>
+
+  {/* Print production */}
+  <rect x="300" y="602" width="360" height="58" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="480" y="626" text-anchor="middle" font-size="13" fill="var(--fg)">Print Production (pandoc + XeLaTeX)</text>
+  <text x="480" y="644" text-anchor="middle" font-size="11" fill="var(--fg-muted)">local KDP-preflight gate: margins, DPI, EXIF</text>
+
+  <path d="M 480 660 L 480 682" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
+
+  {/* Printed book delivered (vendor / human endpoint) */}
+  <rect x="260" y="682" width="440" height="64" rx="6" fill="none" stroke="var(--fg-muted)" stroke-width="1.5" stroke-dasharray="4 3"></rect>
+  <text x="480" y="706" text-anchor="middle" font-size="13" fill="var(--fg)">Printed Book Delivered</text>
+  <text x="480" y="724" text-anchor="middle" font-size="11" fill="var(--fg-muted)">KDP paperback / Lulu hardcover / bespoke leather bindery</text>
+  <text x="480" y="739" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">vendor fulfillment, outside the pipeline</text>
+</svg>
+</div>
+
+Every session flows the same direction: MacWhisper transcribes the recording, n8n picks it up over a webhook, and the transcript lands as plain Markdown in an Obsidian vault before anything touches an LLM. From there, a chapter draft and a critique-and-revise refinement pass both run through the same n8n workflow. The refined chapter splits two ways: a tracker and notification step updates the client record, and a memory-jogger step reads the chapter, the transcript, and the client's birth decade to write next session's questions, which loop back to the human interviewer instead of getting written by hand between sessions. Once every chapter for a client is approved, a separate print pipeline compiles the manuscript, runs a local preflight check built to mirror a print vendor's own rejection rules, and only then hands the file to KDP, Lulu, or a bespoke bindery.
+
+## What shipped
+
+Bill Belk's memoir, *Honeysuckle, Barbecue, and Pioneer in Silicon Valley*, was the first full run through the print side of the pipeline: 7 chapters and 54 photos, built into a 6x9 interior and preflighted clean for a KDP paperback and a Lulu hardcover on the first real upload, with a leather-bound premium edition following on a longer bindery timeline. It didn't go through the automated interview pipeline (it was co-written in person using ChatGPT directly, with no recorded sessions to transcribe), which is exactly why the pipeline's next real client matters: that's the first book where transcription, drafting, refinement, and the memory jogger all run end to end.
+
+The business side is built and live, not aspirational: Sierra Story Co. LLC is filed in Nevada with an EIN and an operating agreement, sierrastoryco.com is indexed and serving a sales handout and a founding-member testimonial program, and the service agreement, intake form, and session script are all print-ready. The pipeline is production-hardened on a real book; the current phase is converting that into paying clients.
