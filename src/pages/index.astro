@@ -11,7 +11,10 @@ const workEntries = (await getCollection("work", (entry) => !entry.data.draft)).
   (a, b) => a.data.order - b.data.order,
 );
 
-const flagshipTiles: ProjectTile[] = workEntries.map((entry) => ({
+// The grid shows the 4 flagship showcases only. Smaller public repos
+// (nemoclaw-stellantis-demo, mtg-mcp) stay reachable through the GitHub
+// nav link rather than crowding the front page.
+const tiles: ProjectTile[] = workEntries.map((entry) => ({
   title: entry.data.title,
   href: `/work/${entry.id}/`,
   external: false,
@@ -19,30 +22,6 @@ const flagshipTiles: ProjectTile[] = workEntries.map((entry) => ({
   tagline: entry.data.tagline,
   tags: entry.data.domains,
 }));
-
-// Supporting (link-out) cards. These aren't `work` collection entries -
-// they're public repos worth surfacing, but they get their own page later
-// (or never), so they link straight to GitHub.
-const supportingTiles: ProjectTile[] = [
-  {
-    title: "NemoClaw Stellantis Demo",
-    href: "https://github.com/jabelk/nemoclaw-stellantis-demo",
-    external: true,
-    tagline:
-      "A concept demo for an NVIDIA panel interview: a self-hosted Nemotron SOP agent with a default-deny egress security beat. Designed and built with Claude Code to show what's possible, on mock data, never run against a live endpoint.",
-    tags: ["AI security", "Nemotron", "concept demo"],
-  },
-  {
-    title: "mtg-mcp",
-    href: "https://github.com/jabelk/mtg-mcp",
-    external: true,
-    tagline:
-      "A minimal MCP server for Magic: The Gathering card lookups, built as a first learn-in-public MCP project with a companion tutorial blog post.",
-    tags: ["MCP", "Python", "tutorial"],
-  },
-];
-
-const tiles: ProjectTile[] = [...flagshipTiles, ...supportingTiles];
 ---
 
 <BaseLayout title={title} description={description} wide>
