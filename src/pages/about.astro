@@ -1,0 +1,224 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import { skillDomains } from "../data/skills-matrix";
+
+const title = "About - Jason Belk";
+const description =
+  "14 years in developer relations and network automation, now an applied AI builder. How I build, how I operate, and the skills behind both.";
+---
+
+<BaseLayout title={title} description={description} wide>
+  <section class="about-hero">
+    <p class="hero-eyebrow">Reno, NV · 14 years engineering, now building applied AI</p>
+    <h1>About</h1>
+
+    {/* CONFIRM: the specifics of Jason's day-to-day Cisco role (how directly he
+       authored NSO service templates and YANG models vs. a broader network
+       automation / DevRel scope) aren't verified against a source doc in this
+       repo. The 14-year DevRel + network-automation framing itself matches
+       the site's existing hero copy; the NSO/YANG specificity is drawn from
+       his own OpenUSD-for-network-engineers explainer in a sibling project. */}
+    <p class="lede">
+      I spent 14 years in developer relations and network automation at Cisco: writing NSO
+      service templates and YANG models, debugging live network state, and teaching other
+      engineers how to automate infrastructure they used to configure by hand. That's not a
+      resume line I'm stretching to sound relevant here. It's the actual foundation this
+      portfolio sits on: the discipline of building things that have to keep running once you
+      stop watching them, and the ability to explain how they work to whoever operates them next.
+    </p>
+    <p class="lede">
+      In 2026 I pointed that same discipline at applied AI. The projects under
+      <a href="/work/">Work</a> are the result: a multi-agent research system, a RAG and MCP
+      backend behind a live product, a mobile app my own household depends on, a SaaS product
+      with real payments and a real security audit, and a workflow-automation business built and
+      registered as a Nevada LLC. All shipped, all reviewed line by line, none of them a demo.
+    </p>
+  </section>
+
+  <section class="about-section" aria-labelledby="how-i-build-heading">
+    <h2 id="how-i-build-heading">How I build</h2>
+    <p>
+      I choose stacks by what the problem needs, not by habit. React Native kept a path open to
+      mobile without maintaining a separate native codebase. Python fit the data and agent work.
+      SvelteKit's server-first routing put every auth and content-access gate at 1 layer instead
+      of scattering client-side checks across the app. I'm not loyal to a language. I'm loyal to
+      shipping the right thing well.
+    </p>
+    <p>
+      Spec-driven, AI-assisted development is how I deliver production-grade work in whatever
+      stack a task calls for. I write every spec, review every diff, and make the calls that don't
+      show up in a diff: OpenTofu over Terraform for a licensing reason, killing a fully-built
+      payment integration once the data said it wasn't working, moving a token deduction before
+      generation instead of after. Claude Code writes most of the implementation and the tests.
+      That division of labor is disclosed on every showcase page, not hidden behind it.
+    </p>
+  </section>
+
+  <section class="about-section" aria-labelledby="how-i-operate-heading">
+    <h2 id="how-i-operate-heading">How I operate</h2>
+    <p>
+      I don't just write code. I ship and operate real systems: infrastructure, CI/CD, payments,
+      security hardening, deployment, and observability. NovelFlame runs on infrastructure I
+      provisioned with OpenTofu, deploys through a CI pipeline I built with required status
+      checks and Docker layer caching, and survived a security audit that caught 4 real financial
+      bugs, including a payment webhook silently failing to credit real customers, before any of
+      them caused real harm. Family App runs a 3-provider AI failover chain and a 15-minute
+      health-check cron so a silent failure gets caught fast instead of running for days
+      unnoticed, which is exactly what happened to the WhatsApp bot it replaced.
+    </p>
+    <p>
+      None of these products carry a large user base, and I'm not going to pretend otherwise.
+      NovelFlame had 0 paying users at the point its billing model got reset. MTG Commander AI
+      runs on 1 Patreon patron. Sierra Story Co. has 1 completed memoir and no paying clients yet.
+      The engineering is the point here, not the traction: this is the discipline I bring when
+      I'm the only one checking whether something is actually working in production.
+    </p>
+  </section>
+
+  <section class="about-section skills-section" aria-labelledby="skills-heading">
+    <h2 id="skills-heading">Skills matrix</h2>
+    <p class="skills-intro">
+      A domain map of what I've actually built, not a language-fluency ranking. Every line links
+      to the showcase that proves it.
+    </p>
+    <div class="skills-grid">
+      {
+        skillDomains.map((domain) => (
+          <article class="skill-domain-card" aria-labelledby={`domain-${domain.id}`}>
+            <h3 id={`domain-${domain.id}`}>{domain.name}</h3>
+            <p class="skill-domain-summary">{domain.summary}</p>
+            <ul class="skill-list" role="list">
+              {domain.skills.map((skill) => (
+                <li class="skill-item">
+                  <span class="skill-name">{skill.name}</span>
+                  <span class="skill-evidence-row">
+                    {skill.evidence.map((ev) =>
+                      ev.href ? (
+                        <a class="skill-evidence-link" href={ev.href}>
+                          {ev.label}
+                        </a>
+                      ) : (
+                        <span class="skill-evidence-plain">{ev.label}</span>
+                      ),
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </article>
+        ))
+      }
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .about-hero {
+    max-width: var(--max-content);
+  }
+
+  .hero-eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    margin: 0 0 0.75rem;
+  }
+
+  .lede {
+    color: var(--fg-muted);
+    font-size: 1.05rem;
+  }
+
+  .about-section {
+    max-width: var(--max-content);
+  }
+
+  .skills-section {
+    max-width: none;
+  }
+
+  .skills-intro {
+    color: var(--fg-muted);
+    max-width: var(--max-content);
+  }
+
+  .skills-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1.5rem;
+    margin-top: 2rem;
+  }
+
+  .skill-domain-card {
+    background: var(--bg-elev);
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+    padding: 1.25rem 1.5rem 1.5rem;
+  }
+
+  .skill-domain-card h3 {
+    margin: 0 0 0.4rem;
+  }
+
+  .skill-domain-summary {
+    color: var(--fg-muted);
+    font-size: 0.9rem;
+    margin: 0 0 1rem;
+  }
+
+  .skill-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+  }
+
+  .skill-item {
+    margin: 0;
+    padding-top: 0.9rem;
+    border-top: 1px solid var(--border);
+  }
+
+  .skill-item:first-child {
+    padding-top: 0;
+    border-top: none;
+  }
+
+  .skill-name {
+    display: block;
+    font-size: 0.92rem;
+    color: var(--fg);
+    line-height: 1.5;
+  }
+
+  .skill-evidence-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: 0.4rem;
+  }
+
+  .skill-evidence-link,
+  .skill-evidence-plain {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--fg-subtle);
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0.1rem 0.45rem;
+  }
+
+  a.skill-evidence-link {
+    border-bottom: none;
+  }
+
+  a.skill-evidence-link:hover {
+    color: var(--accent);
+    border-color: var(--accent-dim);
+  }
+</style>
