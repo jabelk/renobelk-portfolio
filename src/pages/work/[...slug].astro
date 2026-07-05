@@ -1,0 +1,23 @@
+---
+import { getCollection, render, type CollectionEntry } from "astro:content";
+import ShowcaseLayout from "../../layouts/ShowcaseLayout.astro";
+
+export async function getStaticPaths() {
+  const entries = await getCollection("work", (entry) => !entry.data.draft);
+  return entries.map((entry) => ({
+    params: { slug: entry.id },
+    props: { entry },
+  }));
+}
+
+interface Props {
+  entry: CollectionEntry<"work">;
+}
+
+const { entry } = Astro.props;
+const { Content } = await render(entry);
+---
+
+<ShowcaseLayout entry={entry}>
+  <Content />
+</ShowcaseLayout>

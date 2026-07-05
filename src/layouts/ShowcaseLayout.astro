@@ -1,0 +1,116 @@
+---
+// ShowcaseLayout - renders one `work` collection entry: header (title,
+// tagline, live/repo links, why-this-stack, AI-assist note), the
+// ByTheNumbers metrics band, then the MDX body via the default slot.
+// SkillStories (Task 5) mounts below the body.
+import type { CollectionEntry } from "astro:content";
+import BaseLayout from "./BaseLayout.astro";
+import ByTheNumbers from "../components/ByTheNumbers.astro";
+
+interface Props {
+  entry: CollectionEntry<"work">;
+}
+
+const { entry } = Astro.props;
+const { title, tagline, description, liveUrl, repoUrl, whyThisStack, aiAssistNote, numbers } =
+  entry.data;
+---
+
+<BaseLayout title={title} description={description} wide>
+  <article class="showcase">
+    <header class="showcase-header">
+      <h1>{title}</h1>
+      <p class="tagline">{tagline}</p>
+      {
+        (liveUrl || repoUrl) && (
+          <p class="showcase-links">
+            {liveUrl && (
+              <a class="showcase-link" href={liveUrl} target="_blank" rel="noopener noreferrer">
+                Live site
+              </a>
+            )}
+            {repoUrl && (
+              <a class="showcase-link" href={repoUrl} target="_blank" rel="noopener noreferrer">
+                Source
+              </a>
+            )}
+          </p>
+        )
+      }
+      <div class="showcase-meta">
+        <h2>Why this stack</h2>
+        <p>{whyThisStack}</p>
+      </div>
+      <div class="showcase-meta">
+        <h2>AI-assist note</h2>
+        <p>{aiAssistNote}</p>
+      </div>
+    </header>
+
+    <ByTheNumbers numbers={numbers} />
+
+    <div class="showcase-body">
+      <slot />
+    </div>
+
+    {/* SkillStories mounts here in Task 5 */}
+  </article>
+</BaseLayout>
+
+<style>
+  .showcase-header h1 {
+    margin-bottom: 0.4rem;
+  }
+
+  .tagline {
+    color: var(--fg-muted);
+    font-size: 1.1rem;
+    margin-top: 0;
+  }
+
+  .showcase-links {
+    display: flex;
+    gap: 0.75rem;
+    margin: 1.25rem 0;
+  }
+
+  .showcase-link {
+    display: inline-flex;
+    align-items: center;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    color: var(--fg);
+    background: var(--bg-elev);
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    padding: 0.4rem 0.85rem;
+  }
+
+  .showcase-link:hover {
+    color: var(--accent);
+    border-color: var(--accent-dim);
+  }
+
+  .showcase-meta {
+    margin-top: 1.5rem;
+  }
+
+  .showcase-meta h2 {
+    font-size: 1rem;
+    margin: 0 0 0.5rem;
+    padding-top: 0;
+    border-top: none;
+    color: var(--fg-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-family: var(--font-mono);
+  }
+
+  .showcase-meta p {
+    margin: 0;
+  }
+
+  .showcase-body {
+    margin-top: 1rem;
+  }
+</style>

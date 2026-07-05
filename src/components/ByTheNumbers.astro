@@ -1,0 +1,117 @@
+---
+// ByTheNumbers - a row of stat chips built from the work collection's
+// `numbers` object. Renders only the fields that are actually present,
+// so a project with weak or missing metrics can simply omit them
+// instead of showing "N/A" everywhere.
+interface NumbersData {
+  monthsLive?: number;
+  users?: string;
+  payments?: string;
+  infra?: string[];
+  auth?: string;
+  community?: string;
+  marketing?: string;
+  specCount?: number;
+}
+
+interface Props {
+  numbers: NumbersData;
+}
+
+interface Chip {
+  label: string;
+  value: string;
+  href?: string;
+}
+
+const { numbers } = Astro.props;
+
+const chips: Chip[] = [];
+
+if (typeof numbers.monthsLive === "number") {
+  chips.push({ label: "Live", value: `${numbers.monthsLive} mo` });
+}
+if (numbers.users) {
+  chips.push({ label: "Users", value: numbers.users });
+}
+if (numbers.payments) {
+  chips.push({ label: "Payments", value: numbers.payments });
+}
+if (numbers.infra && numbers.infra.length > 0) {
+  chips.push({ label: "Infra", value: numbers.infra.join(", ") });
+}
+if (numbers.auth) {
+  chips.push({ label: "Auth", value: numbers.auth });
+}
+if (numbers.community) {
+  chips.push({ label: "Community", value: numbers.community });
+}
+if (numbers.marketing) {
+  chips.push({ label: "Marketing", value: numbers.marketing });
+}
+if (typeof numbers.specCount === "number") {
+  // Placeholder link - a dedicated spec-trail view lands in a later task.
+  chips.push({ label: "Specs", value: String(numbers.specCount), href: "#" });
+}
+---
+
+{
+  chips.length > 0 && (
+    <div class="by-the-numbers" role="list" aria-label="Project metrics">
+      {chips.map((chip) => (
+        <div class="numbers-chip" role="listitem">
+          <span class="numbers-chip-label">{chip.label}</span>
+          {chip.href ? (
+            <a class="numbers-chip-value" href={chip.href}>
+              {chip.value}
+            </a>
+          ) : (
+            <span class="numbers-chip-value">{chip.value}</span>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+<style>
+  .by-the-numbers {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin: 2rem 0;
+    padding: 1.25rem 0;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .numbers-chip {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    padding: 0.55rem 0.9rem;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    min-width: 6rem;
+  }
+
+  .numbers-chip-label {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--fg-subtle);
+  }
+
+  .numbers-chip-value {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--fg);
+    border-bottom: none;
+  }
+
+  a.numbers-chip-value:hover {
+    color: var(--accent);
+  }
+</style>
