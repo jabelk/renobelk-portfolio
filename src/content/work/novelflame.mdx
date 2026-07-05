@@ -1,0 +1,188 @@
+---
+title: "NovelFlame"
+slug: "novelflame"
+tagline: "Built a token economy and a CCBill payment integration across 2 specs. Watched competitor reviews name counting-currency UX as the #1 complaint in the category. Ripped out both and shipped a flat subscription instead."
+description: "A production SvelteKit app I designed, built, and operate as the sole developer: interactive fiction generation across 4 LLM providers, gated behind a 2-layer content-safety filter, billed through Stripe and Apple IAP, and deployed through a CI pipeline I built from scratch. 189 specs drove the build with Claude Code, including a security audit that caught 4 real financial bugs and a monetization reset that killed an entire payment integration once the data said to."
+whyThisStack: "SvelteKit's server-first routing puts every auth and content-access gate at the server layer instead of scattered client checks, which mattered once a security audit found the auth guard excluded all /api routes from protection entirely. Supabase paired with Drizzle keeps the schema in version-controlled TypeScript instead of a GUI-managed database, important when a solo operator is the only reviewer of every migration. Cloudflare R2 skips egress fees for a product that generates images and video on every story. OpenTofu over Terraform was a license call, not a technical one: Terraform's 2023 move to the Business Source License made a state file holding database passwords and API keys a bigger risk than a drop-in open-source replacement with native state encryption. Railway's Docker-based deploy meant the Docker build itself, not a platform-specific buildpack, was the thing worth optimizing, which is why the multi-stage Dockerfile and GitHub Actions layer caching became their own spec."
+primaryStack:
+  - SvelteKit 2 / Svelte 5
+  - TypeScript
+  - Supabase (Postgres + Auth)
+  - Drizzle ORM
+  - Cloudflare R2 + Turnstile
+  - Vercel AI SDK (xAI, OpenAI, Anthropic, Google providers)
+  - Stripe + Apple IAP
+  - OpenTofu (IaC)
+  - Docker + GitHub Actions + GHCR
+  - Railway
+domains:
+  - Full-Stack SaaS Engineering
+  - Infrastructure as Code
+  - Payments & Compliance
+  - AI Content Safety
+aiAssistNote: "Built spec-driven with Claude Code across 189 specs (spec, plan, tasks per feature, with a CodeRabbit review pass on higher-risk PRs). I wrote every spec, reviewed every diff, and made the calls that don't show up in a diff: OpenTofu over Terraform, killing the token economy, moving token deduction before generation instead of after. Claude Code wrote most of the implementation and tests."
+order: 3
+draft: false
+liveUrl: "https://novelflame.ai"
+numbers:
+  monthsLive: 4
+  payments: "Stripe subscriptions (web) + Apple IAP (iOS); CCBill fully retired Mar 2026"
+  infra:
+    - Cloudflare (DNS/CDN/R2/Turnstile)
+    - OpenTofu IaC (~30 resources)
+    - Docker multi-stage + GHCR
+    - Railway
+  auth: "Supabase Auth via SSR cookies"
+  specCount: 189
+skills:
+  - name: "Infrastructure as Code (OpenTofu over Terraform)"
+    domain: "Infrastructure & DevOps"
+    decision: "Cloudflare DNS, R2 buckets, Turnstile widgets, Supabase project settings, and GitHub branch protection all lived in dashboards, changeable by anyone with access and undocumented anywhere in the repo. I picked OpenTofu over Terraform for the codify-everything pass: same HCL, same providers, but MPL 2.0 instead of Terraform's 2023 move to the Business Source License, plus OpenTofu's native state encryption, which matters because the state file holds database passwords and API keys."
+    broke: "State lived only on my laptop. A disk failure would have meant losing the only record of how roughly 30 cloud resources were actually configured, and there was no way to detect drift if I, or an AI agent, changed something by hand in a dashboard."
+    measured: "Ran the import command against every existing resource first instead of applying from scratch, then confirmed a plan against the imported state showed 0 changes, proving the codified config matched what was actually running in production."
+    fixed: "State now lives encrypted in a Cloudflare R2 backend. Secrets moved out of plaintext .env/.tfvars into SOPS with age-encrypted keys. Branch protection and CI secrets are codified, so repo governance survives even a full repo recreation."
+  - name: "CI/CD Pipeline + Docker Layer Caching"
+    domain: "Build & Release Engineering"
+    decision: "The existing GitHub Actions workflow only ran tests. I built a required-status-check gate (lint, format, type-check, tests, a production build, and infra validation that only runs when infra/ files change) and rebuilt the Dockerfile into cache-friendly stages so a code-only push doesn't force a full dependency reinstall."
+    broke: "Every push rebuilt the Docker image from scratch, dependencies included, even for a 1-line source change. There was also no branch protection tying merge eligibility to a green CI run, so a red PR could still land on main."
+    measured: "Benchmarked cache-hit builds against cold builds against a 50%+ speedup target and a sub-3-minute goal for code-only changes, then verified PR builds never publish an image by checking the GHCR package API for a 404 before the first real merge."
+    fixed: "Dependency installation and application build are now separate Docker stages, so unchanged dependencies stay cached across pushes. Images publish to GHCR only on merge to main, tagged by commit SHA plus a latest tag, gated behind the same CI status check that blocks merges."
+  - name: "Token & Payment Integrity"
+    domain: "Backend Reliability & Payments"
+    decision: "A security audit surfaced 4 separate financial bugs at once instead of 1, and I fixed each with an independent mechanism rather than patching symptoms: a starter-token race, a generation-guard race, a charge-after-work ordering flaw, and a payment webhook that resolved purchasers by a raw email string instead of their account ID."
+    broke: "The CCBill webhook credited tokens to a phantom user record built from the purchaser's email, not their actual account UUID, so real purchases never reached the paying user's balance. Separately, token balance was checked before generation but deducted after, meaning a balance that hit 0 mid-generation produced free content, and 2 concurrent generation requests on the same session could double-charge."
+    measured: "Wrote concurrent-request tests (Promise.all against the starter grant and the generation guard) to prove exactly 1 grant and 1 generation win under a race, plus webhook tests with both a known and an unknown email to confirm the unknown case logs for manual resolution and still returns 200 so the processor doesn't retry-storm the endpoint."
+    fixed: "The starter grant became an atomic INSERT ... ON CONFLICT DO NOTHING. The generation guard became a single conditional UPDATE ... RETURNING that the losing request sees as a 409. Token deduction moved before generation, with an automatic refund transaction on failure. The webhook resolved the real account UUID via an admin user lookup before crediting anything, and the digest check moved to a timing-safe comparison."
+  - name: "Monetization Reset: Killing the Token Economy"
+    domain: "Product & Payments Architecture"
+    decision: "By the time I scoped the monetization reset, NovelFlame had 0 paying users and a billing model that competitor reviews (rival AI-fiction apps) named as the category's top complaint: counting currency per segment, image, and video instead of a plain subscription. I made the call to remove CCBill entirely and kill the user-facing token system rather than keep patching it, replacing both with a flat Stripe subscription plus Apple IAP for the iOS app."
+    broke: "The billing UI advertised the paid tier as unlimited while the code silently deducted tokens from subscribers on every generation and every image, a bait-and-switch that would have generated refunds and 1-star reviews the moment anyone subscribed. CCBill's compliance surface (refunds, chargebacks, admin purchase monitoring, a full webhook) was fully built and tested but was solving for a payment processor the product no longer needed once the content stayed PG-13."
+    measured: "The token rip-out ran as a tracked 4-PR arc with a verified impact matrix, and a follow-up sweep caught 6 dead operator scripts plus a staging seed script that had been silently failing for days because continue-on-error: true in the CI workflow masked the crash."
+    fixed: "CCBill's config, service, webhook handler, and 16 test files came out in a single dedicated removal PR, with the payment-provider schema columns deliberately preserved rather than dropped so the historical record survives. NovelFlame Plus now bills through Stripe on web ($8.99/mo or $69.99/yr) and Apple IAP on iOS, with no token, credit, or gem counter visible anywhere in the product."
+  - name: "2-Layer Content-Safety Filter"
+    domain: "AI Safety & Trust"
+    decision: "Every AI-generated story, chat message, and image prompt needed a safety gate before it reaches a reader, so I built a hybrid filter instead of relying only on the upstream models' own guardrails: the OpenAI Moderation API as the primary classifier, plus custom keyword and pattern rules for platform-specific categories the moderation API doesn't cover."
+    broke: "The upstream AI providers already run their own content safety, but those thresholds can change without notice and differ by provider, so a filter that only trusted a model's refusal behavior had no way to catch a policy gap consistently across 4 different providers."
+    measured: "Set explicit target rates instead of a pass/fail gut check: 100% of explicit prohibited prompts blocked pre-generation, under 1% false-positive rate on legitimate content, and 95%+ catch rate on common evasion techniques like leetspeak and unicode substitution, each checked against a dedicated test set."
+    fixed: "Filter actions use a tiered response: a hard block with no override for the highest-risk category, and a soft warning with a suggested rephrase for lower-risk categories. Every action logs a content hash, the rule matched, and the outcome for audit purposes, and a user-facing report button files straight to GitHub Issues, so a solo operator with no admin dashboard still has a working review queue."
+---
+
+{/* CONFIRM: numbers.monthsLive (4) is measured from project inception (2026-03-03, per specs/001) to today. It does not represent a specific "launched to real users" date since I couldn't find one in the specs or CHANGELOG; adjust if you want it to mean something more specific (e.g. time since the domain migration to novelflame.ai on 2026-03-11). */}
+
+{/* CONFIRM: numbers deliberately omits users, community, and marketing figures. Spec 122 (2026-04-20) states NovelFlame had 0 paying users at that point, and I found no later data confirming a current user count, Discord member count, or an active paid-ad channel (the marketing spec describes an organic Reddit/Discord/Twitter plan, and an earlier doc explicitly rules out Meta/Google ads under the old adult-content policy). Add real numbers here if you have them from the Stripe/Discord dashboards directly. */}
+
+## Why this exists
+
+NovelFlame is an interactive fiction platform: readers pick a genre and premise, and the app generates a branching story with inline images and a completion video, choice by choice. I run it solo, end to end, from the Terraform-equivalent that provisions the Cloudflare zone to the CI pipeline that gates every merge. The interesting engineering problem isn't the story generation itself, it's everything around it: a payment system that has to be right the first time because it's real money, a content filter that has to run on every output because the input is an LLM, and an infrastructure and release pipeline built for a team of one.
+
+The product also changed shape under me. It shipped with a token economy and a CCBill integration, and by spec 122 the data said that model wasn't working: 0 paying users, and competitor reviews naming counting-currency UX as the category's top complaint. Rather than keep patching a model the market was telling me not to build, I killed it and shipped a flat subscription instead.
+
+## Architecture
+
+<div style="overflow-x: auto; margin: 2rem 0;">
+<svg viewBox="0 0 960 720" width="100%" style="min-width: 720px; display: block; font-family: var(--font-mono);" role="img" aria-labelledby="nf-arch-title nf-arch-desc">
+  <title id="nf-arch-title">NovelFlame request and generation pipeline</title>
+  <desc id="nf-arch-desc">A reader's request passes through Supabase auth and a subscription gate, then an input content-safety scan, before fanning out to one of 3 LLM providers for generation. Output passes a second safety scan before media lands in Cloudflare R2 and streams back to the reader. Payments and infrastructure/CI/CD run underneath the whole pipeline.</desc>
+
+  <defs>
+    <marker id="nf-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)"></path>
+    </marker>
+    <marker id="nf-arrow-muted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--fg-muted)"></path>
+    </marker>
+  </defs>
+
+  {/* Reader */}
+  <rect x="390" y="20" width="200" height="56" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="490" y="44" text-anchor="middle" font-size="13" fill="var(--fg)">Reader (Browser)</text>
+  <text x="490" y="62" text-anchor="middle" font-size="11" fill="var(--fg-muted)">novelflame.ai, SvelteKit SSR</text>
+
+  <path d="M 490 76 L 490 92 L 310 92 L 310 106" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf-arrow)"></path>
+  <path d="M 490 76 L 490 92 L 670 92 L 670 106" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf-arrow)"></path>
+
+  {/* Auth + Subscription gate */}
+  <rect x="140" y="106" width="340" height="56" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="310" y="130" text-anchor="middle" font-size="13" fill="var(--fg)">Supabase Auth (SSR)</text>
+  <text x="310" y="148" text-anchor="middle" font-size="11" fill="var(--fg-muted)">session + age verification</text>
+
+  <rect x="500" y="106" width="340" height="56" rx="6" fill="var(--bg-elev)" stroke="var(--accent-dim)" stroke-width="1.5"></rect>
+  <text x="670" y="130" text-anchor="middle" font-size="13" fill="var(--fg)">Subscription Gate</text>
+  <text x="670" y="148" text-anchor="middle" font-size="11" fill="var(--fg-muted)">free: 3 stories/30 days, or Plus</text>
+
+  <path d="M 310 162 L 310 178 L 490 178 L 490 192" fill="none" stroke="var(--accent)" stroke-width="1.5"></path>
+  <path d="M 670 162 L 670 178 L 490 178 L 490 192" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf-arrow)"></path>
+
+  {/* Input safety scan */}
+  <rect x="340" y="192" width="300" height="56" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="490" y="216" text-anchor="middle" font-size="13" fill="var(--fg)">Input Safety Scan</text>
+  <text x="490" y="234" text-anchor="middle" font-size="11" fill="var(--fg-muted)">moderation API + custom rules</text>
+
+  <path d="M 490 248 L 490 264 L 160 264 L 160 278" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf-arrow)"></path>
+  <path d="M 490 248 L 490 278" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf-arrow)"></path>
+  <path d="M 490 248 L 490 264 L 790 264 L 790 278" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf-arrow)"></path>
+
+  {/* Row: 3 generation providers */}
+  <rect x="20" y="278" width="280" height="60" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="160" y="304" text-anchor="middle" font-size="13" fill="var(--fg)">xAI Grok</text>
+  <text x="160" y="322" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">default story + video model</text>
+
+  <rect x="350" y="278" width="280" height="60" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="490" y="304" text-anchor="middle" font-size="13" fill="var(--fg)">OpenAI</text>
+  <text x="490" y="322" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">utility tier + character images</text>
+
+  <rect x="650" y="278" width="280" height="60" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="790" y="304" text-anchor="middle" font-size="13" fill="var(--fg)">Anthropic Claude</text>
+  <text x="790" y="322" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">editorial quality pass</text>
+
+  <path d="M 160 338 L 160 354 L 490 354 L 490 368" fill="none" stroke="var(--accent)" stroke-width="1.5"></path>
+  <path d="M 490 338 L 490 368" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf-arrow)"></path>
+  <path d="M 790 338 L 790 354 L 490 354 L 490 368" fill="none" stroke="var(--accent)" stroke-width="1.5"></path>
+
+  {/* Output safety scan */}
+  <rect x="340" y="368" width="300" height="56" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="490" y="392" text-anchor="middle" font-size="13" fill="var(--fg)">Output Safety Scan</text>
+  <text x="490" y="410" text-anchor="middle" font-size="11" fill="var(--fg-muted)">same 2-layer filter, pre-display</text>
+
+  <path d="M 490 424 L 490 440 L 280 440 L 280 454" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf-arrow)"></path>
+  <path d="M 490 424 L 490 440 L 680 440 L 680 454" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf-arrow)"></path>
+
+  {/* R2 + SSE */}
+  <rect x="110" y="454" width="340" height="60" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="280" y="480" text-anchor="middle" font-size="13" fill="var(--fg)">Cloudflare R2</text>
+  <text x="280" y="498" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">images + completion video</text>
+
+  <rect x="510" y="454" width="340" height="60" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="680" y="480" text-anchor="middle" font-size="13" fill="var(--fg)">SSE Stream</text>
+  <text x="680" y="498" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">segment by segment to reader</text>
+
+  <path d="M 280 514 L 280 530 L 490 530 L 490 544" fill="none" stroke="var(--accent)" stroke-width="1.5"></path>
+  <path d="M 680 514 L 680 530 L 490 530 L 490 544" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf-arrow)"></path>
+
+  {/* Reader sees segment */}
+  <rect x="340" y="544" width="300" height="50" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="490" y="566" text-anchor="middle" font-size="13" fill="var(--fg)">Reader sees the segment</text>
+  <text x="490" y="583" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">picks a choice, loop repeats</text>
+
+  {/* Foundation: payments + infra/CI, dashed */}
+  <path d="M 490 594 L 490 610 L 335 610 L 335 630" fill="none" stroke="var(--fg-muted)" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#nf-arrow-muted)"></path>
+  <path d="M 490 594 L 490 610 L 725 610 L 725 630" fill="none" stroke="var(--fg-muted)" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#nf-arrow-muted)"></path>
+
+  <rect x="160" y="630" width="350" height="60" rx="6" fill="none" stroke="var(--fg-muted)" stroke-width="1.5" stroke-dasharray="4 3"></rect>
+  <text x="335" y="656" text-anchor="middle" font-size="13" fill="var(--fg)">Payments Gate</text>
+  <text x="335" y="674" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">Stripe (web) + Apple IAP (iOS)</text>
+
+  <rect x="550" y="630" width="350" height="60" rx="6" fill="none" stroke="var(--fg-muted)" stroke-width="1.5" stroke-dasharray="4 3"></rect>
+  <text x="725" y="650" text-anchor="middle" font-size="13" fill="var(--fg)">Infra &amp; CI/CD</text>
+  <text x="725" y="666" text-anchor="middle" font-size="10" fill="var(--fg-muted)">OpenTofu to Cloudflare + Railway</text>
+  <text x="725" y="680" text-anchor="middle" font-size="10" fill="var(--fg-muted)">GH Actions to Docker to GHCR</text>
+</svg>
+</div>
+
+The flow is 1 direction with 2 gates. A reader's request passes Supabase's SSR auth check and the subscription gate (free tier caps at 3 stories per 30 days; Plus is unlimited) before it ever reaches an LLM. The input safety scan runs the same 2-layer filter, the OpenAI Moderation API plus custom rules, that runs again on the way out, so a prompt has to clear the gate twice: once before generation, once before display. Generation itself is provider-routed rather than locked to 1 vendor: xAI's Grok is the default story and video model, OpenAI covers the utility tier and character-consistency images, and Anthropic's Claude runs a separate editorial quality pass over demo content. Media lands in Cloudflare R2 and streams back over SSE, segment by segment, so a reader sees text and images appear progressively rather than waiting on the full generation. Underneath all of it, a Payments Gate (Stripe on web, Apple IAP on iOS) controls access, and the whole app is provisioned through OpenTofu and deployed through a GitHub Actions to Docker to GHCR pipeline onto Railway.
+
+## What shipped
+
+189 specs took NovelFlame from a forked prototype to a live, solo-operated product. Some of the most valuable work wasn't a new feature. It was a security audit that found 4 real financial bugs already in production, including a payment webhook silently failing to credit real customers, and fixed each with its own targeted mechanism rather than 1 patch that half-covered all 4. It was infrastructure-as-code that turned roughly 30 hand-configured cloud resources into version-controlled state, importable and idempotent. And it was a monetization reset that killed a fully-built token economy and CCBill integration once the data, 0 paying users and a UX complaint pattern from competitor reviews, said that model wasn't the right one, replacing it with a flat Stripe and Apple IAP subscription instead.
+
+The throughline across all of it is the same: a solo operator's infrastructure has to be legible enough that 1 person can trust it, and honest enough to change course when a shipped feature turns out to be the wrong bet.
