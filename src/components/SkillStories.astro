@@ -39,10 +39,32 @@ function kebab(value: string): string {
     .replace(/(^-|-$)/g, "");
 }
 
-const items = skills.map((skill) => ({
-  ...skill,
-  id: `skill-${kebab(skill.name)}`,
-}));
+// Guards against two skills normalizing to the same slug (duplicate names,
+// or names like "Node.js" and "Node JS") and against a name with no
+// alphanumerics, which would otherwise yield a bare "skill-" id. Ids are
+// precomputed once here and reused for both the node href and the panel id,
+// so document.getElementById(id) always resolves the right skill.
+const usedIds = new Set<string>();
+
+function uniqueId(base: string): string {
+  let candidate = base;
+  let suffix = 2;
+  while (usedIds.has(candidate)) {
+    candidate = `${base}-${suffix}`;
+    suffix += 1;
+  }
+  usedIds.add(candidate);
+  return candidate;
+}
+
+const items = skills.map((skill, index) => {
+  const slug = kebab(skill.name);
+  const base = slug ? `skill-${slug}` : `skill-${index}`;
+  return {
+    ...skill,
+    id: uniqueId(base),
+  };
+});
 ---
 
 {
