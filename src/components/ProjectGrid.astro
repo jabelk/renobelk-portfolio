@@ -1,0 +1,230 @@
+---
+// ProjectGrid - responsive grid of project tiles.
+//
+// Flagship (internal) tiles carry `external: false` and link to their own
+// /work/<slug>/ page. Supporting tiles carry `external: true` and link
+// off-site in a new tab with rel="noopener".
+//
+// A tile with no `image` gets a deliberate gradient + monogram fallback
+// instead of a broken <img> - some projects (finance-agent, for now) don't
+// have a screenshot yet, and a missing-image icon would read as unfinished
+// rather than intentional.
+export interface ProjectTile {
+  title: string;
+  href: string;
+  external: boolean;
+  image?: string;
+  tagline: string;
+  tags: string[];
+}
+
+interface Props {
+  tiles: ProjectTile[];
+}
+
+const { tiles } = Astro.props;
+
+function initials(title: string): string {
+  const words = title.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "";
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[1][0]).toUpperCase();
+}
+---
+
+<ul class="project-grid" role="list">
+  {
+    tiles.map((tile) => (
+      <li class="project-tile-item">
+        <a
+          class="project-tile"
+          href={tile.href}
+          target={tile.external ? "_blank" : undefined}
+          rel={tile.external ? "noopener" : undefined}
+        >
+          <div class="project-tile-media">
+            {tile.image ? (
+              <img src={tile.image} alt={`${tile.title} screenshot`} loading="lazy" />
+            ) : (
+              <div class="project-tile-fallback" aria-hidden="true">
+                <span class="project-tile-fallback-glyph">{initials(tile.title)}</span>
+              </div>
+            )}
+          </div>
+          <div class="project-tile-body">
+            <h3 class="project-tile-title">
+              {tile.title}
+              {tile.external && (
+                <span class="project-tile-ext" aria-hidden="true">
+                  {" "}
+                  ↗
+                </span>
+              )}
+            </h3>
+            <p class="project-tile-tagline">{tile.tagline}</p>
+            {tile.tags.length > 0 && (
+              <ul class="project-tile-tags" role="list">
+                {tile.tags.slice(0, 3).map((tag) => (
+                  <li class="tag">{tag}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </a>
+      </li>
+    ))
+  }
+</ul>
+
+<style>
+  .project-grid {
+    list-style: none;
+    margin: 2rem 0 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 1.5rem;
+  }
+
+  .project-tile-item {
+    min-width: 0;
+  }
+
+  .project-tile {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    color: var(--fg);
+    text-decoration: none;
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--bg-elev);
+    transition:
+      transform 0.18s ease,
+      border-color 0.18s ease,
+      box-shadow 0.18s ease;
+  }
+
+  .project-tile:hover,
+  .project-tile:focus-visible {
+    transform: translateY(-4px);
+    border-color: var(--accent-dim);
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+  }
+
+  .project-tile-media {
+    aspect-ratio: 16 / 9;
+    width: 100%;
+    max-width: 100%;
+    overflow: hidden;
+    background: var(--bg-code);
+  }
+
+  .project-tile-media img {
+    width: 100%;
+    height: 100%;
+    max-width: 100%;
+    object-fit: cover;
+    display: block;
+    margin: 0;
+    border: none;
+    border-radius: 0;
+  }
+
+  .project-tile-fallback {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(
+      135deg,
+      var(--bg-elev) 0%,
+      var(--bg-code) 55%,
+      var(--accent-dim) 220%
+    );
+  }
+
+  .project-tile-fallback::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image: repeating-linear-gradient(
+      45deg,
+      rgba(118, 185, 0, 0.05) 0,
+      rgba(118, 185, 0, 0.05) 1px,
+      transparent 1px,
+      transparent 14px
+    );
+  }
+
+  .project-tile-fallback-glyph {
+    position: relative;
+    font-family: var(--font-mono);
+    font-size: 2.5rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: var(--fg-muted);
+  }
+
+  .project-tile-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 1.1rem 1.25rem 1.25rem;
+  }
+
+  .project-tile-title {
+    margin: 0;
+    padding: 0;
+    border: none;
+    font-size: 1.05rem;
+  }
+
+  .project-tile-ext {
+    color: var(--fg-subtle);
+    font-weight: 400;
+  }
+
+  .project-tile-tagline {
+    margin: 0;
+    color: var(--fg-muted);
+    font-size: 0.9rem;
+    line-height: 1.5;
+  }
+
+  .project-tile-tags {
+    list-style: none;
+    margin: 0.4rem 0 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    opacity: 0;
+    transform: translateY(4px);
+    transition:
+      opacity 0.18s ease,
+      transform 0.18s ease;
+  }
+
+  .project-tile:hover .project-tile-tags,
+  .project-tile:focus-visible .project-tile-tags {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .project-tile,
+    .project-tile-tags {
+      transition: none;
+    }
+
+    .project-tile:hover,
+    .project-tile:focus-visible {
+      transform: none;
+    }
+  }
+</style>

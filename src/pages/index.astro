@@ -1,12 +1,94 @@
 ---
+import { getCollection } from "astro:content";
 import BaseLayout from "../layouts/BaseLayout.astro";
+import ProjectGrid, { type ProjectTile } from "../components/ProjectGrid.astro";
 
 const title = "Jason Belk";
 const description =
   "AI engineering portfolio for Jason Belk: shipped work, judgment calls, and the reasoning behind them.";
+
+const workEntries = (await getCollection("work", (entry) => !entry.data.draft)).sort(
+  (a, b) => a.data.order - b.data.order,
+);
+
+const flagshipTiles: ProjectTile[] = workEntries.map((entry) => ({
+  title: entry.data.title,
+  href: `/work/${entry.id}/`,
+  external: false,
+  image: entry.data.heroImage,
+  tagline: entry.data.tagline,
+  tags: entry.data.domains,
+}));
+
+// Supporting (link-out) cards. These aren't `work` collection entries -
+// they're public repos worth surfacing, but they get their own page later
+// (or never), so they link straight to GitHub.
+const supportingTiles: ProjectTile[] = [
+  {
+    title: "NemoClaw Stellantis Demo",
+    href: "https://github.com/jabelk/nemoclaw-stellantis-demo",
+    external: true,
+    tagline:
+      "A security-forward Nemotron agent with default-deny egress, built for a regulated-industry SOP use case.",
+    tags: ["AI security", "agents", "regulated"],
+  },
+  {
+    title: "mtg-mcp",
+    href: "https://github.com/jabelk/mtg-mcp",
+    external: true,
+    tagline: "A public Model Context Protocol server.",
+    tags: ["MCP", "Python", "open source"],
+  },
+];
+
+const tiles: ProjectTile[] = [...flagshipTiles, ...supportingTiles];
 ---
 
-<BaseLayout title={title} description={description}>
-  <h1>renobelk.com</h1>
-  <p class="lede">Landing page placeholder. The real page comes in a later task.</p>
+<BaseLayout title={title} description={description} wide>
+  <section class="hero">
+    <p class="hero-eyebrow">Reno, NV · Applied AI builder</p>
+    <h1>Jason Belk</h1>
+    <p class="hero-lede">
+      14 years in developer relations and network automation, now building applied AI. I choose
+      stacks by what the problem needs, not by habit: Python, TypeScript, whatever fits. I'm
+      loyal to shipping the right thing, spec-driven and AI-assisted delivery, not to any 1
+      language or framework.
+    </p>
+    <p class="hero-lede">
+      I ship, operate, and support real products with real users. Here's the work.
+    </p>
+  </section>
+
+  <section class="work-section" aria-labelledby="work-heading">
+    <h2 id="work-heading">Selected work</h2>
+    <ProjectGrid tiles={tiles} />
+  </section>
 </BaseLayout>
+
+<style>
+  .hero {
+    max-width: var(--max-content);
+  }
+
+  .hero-eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    margin: 0 0 0.75rem;
+  }
+
+  .hero-lede {
+    color: var(--fg-muted);
+    font-size: 1.05rem;
+  }
+
+  .work-section {
+    margin-top: 3rem;
+  }
+
+  .work-section h2 {
+    margin-bottom: 0;
+  }
+</style>
