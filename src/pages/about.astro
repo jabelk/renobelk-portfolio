@@ -62,9 +62,9 @@ const description =
       I don't just write code. I ship and operate real systems: infrastructure, CI/CD, payments,
       security hardening, deployment, and observability. NovelFlame runs on infrastructure I
       provisioned with OpenTofu, deploys through a CI pipeline I built with required status
-      checks and Docker layer caching, and survived a security audit that caught 4 real financial
-      bugs, including a payment webhook silently failing to credit real customers, before any of
-      them caused real harm. Family App runs a 3-provider AI failover chain and a 15-minute
+      checks and Docker layer caching, and a pre-launch security pass on the
+      billing code caught token-ledger race conditions and a charge-ordering bug before the
+      payment model went live. Family App runs a 3-provider AI failover chain and a 15-minute
       health-check cron so a silent failure gets caught fast instead of running for days
       unnoticed, which is exactly what happened to the WhatsApp bot it replaced.
     </p>
