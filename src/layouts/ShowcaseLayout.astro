@@ -6,14 +6,24 @@
 import type { CollectionEntry } from "astro:content";
 import BaseLayout from "./BaseLayout.astro";
 import ByTheNumbers from "../components/ByTheNumbers.astro";
+import SkillStories from "../components/SkillStories.astro";
 
 interface Props {
   entry: CollectionEntry<"work">;
 }
 
 const { entry } = Astro.props;
-const { title, tagline, description, liveUrl, repoUrl, whyThisStack, aiAssistNote, numbers } =
-  entry.data;
+const {
+  title,
+  tagline,
+  description,
+  liveUrl,
+  repoUrl,
+  whyThisStack,
+  aiAssistNote,
+  numbers,
+  skills,
+} = entry.data;
 ---
 
 <BaseLayout title={title} description={description} wide>
@@ -53,7 +63,7 @@ const { title, tagline, description, liveUrl, repoUrl, whyThisStack, aiAssistNot
       <slot />
     </div>
 
-    {/* SkillStories mounts here in Task 5 */}
+    <SkillStories skills={skills} />
   </article>
 </BaseLayout>
 

@@ -1,0 +1,337 @@
+---
+// SkillStories - the portfolio's signature explorable element. Renders each
+// showcase skill as a clickable node; clicking one expands its judgment
+// story inline (Decision -> What broke -> How I measured it -> How I fixed
+// it), with an optional media image.
+//
+// Interaction is adapted from nvidia-portfolio's `initTimelineReader`
+// pattern (src/pages/index.astro): click reveals a panel and hides the
+// others, the hash updates for deep-linking, a matching hash opens its
+// panel on load, and prefers-reduced-motion is honored for the scroll.
+// A `:target` CSS rule is the no-JS fallback.
+//
+// This component uses its own scoped class names (skill-node / skill-panel)
+// rather than the shared .tl-node / .post-panel selectors in global.css --
+// those carry homepage-only layout (sticky positioning, horizontal dot
+// track) that doesn't fit a skill list embedded inside a showcase article.
+// The mechanic (is-open / is-active / :target) is the same shape, adapted.
+interface Skill {
+  name: string;
+  domain: string;
+  decision: string;
+  broke: string;
+  measured: string;
+  fixed: string;
+  media?: string;
+}
+
+interface Props {
+  skills: Skill[];
+}
+
+const { skills } = Astro.props;
+
+function kebab(value: string): string {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+}
+
+const items = skills.map((skill) => ({
+  ...skill,
+  id: `skill-${kebab(skill.name)}`,
+}));
+---
+
+{
+  items.length > 0 && (
+    <section class="skill-stories" aria-labelledby="skill-stories-heading">
+      <h2 id="skill-stories-heading">Skill stories</h2>
+      <p class="skill-stories-hint">
+        Click a skill to open the story behind it: the decision, what broke,
+        how it got measured, and how it got fixed.
+      </p>
+
+      <ol class="skill-node-list">
+        {items.map((skill) => (
+          <li class="skill-node-item">
+            <a
+              class="skill-node js-skill-node"
+              href={`#${skill.id}`}
+              data-skill={skill.id}
+              aria-label={`${skill.name}, ${skill.domain}`}
+            >
+              <span class="skill-node-name">{skill.name}</span>
+              <span class="skill-node-domain">{skill.domain}</span>
+            </a>
+          </li>
+        ))}
+      </ol>
+
+      {items.map((skill) => (
+        <article class="skill-panel" id={skill.id} aria-label={skill.name}>
+          <header class="skill-panel-head">
+            <button class="skill-panel-close js-skill-close" type="button">
+              <span aria-hidden="true">←</span> all skills
+            </button>
+            <p class="skill-panel-domain">{skill.domain}</p>
+            <h3 class="skill-panel-title">{skill.name}</h3>
+          </header>
+          <dl class="skill-beats">
+            <div class="skill-beat">
+              <dt>Decision</dt>
+              <dd>{skill.decision}</dd>
+            </div>
+            <div class="skill-beat">
+              <dt>What broke</dt>
+              <dd>{skill.broke}</dd>
+            </div>
+            <div class="skill-beat">
+              <dt>How I measured it</dt>
+              <dd>{skill.measured}</dd>
+            </div>
+            <div class="skill-beat">
+              <dt>How I fixed it</dt>
+              <dd>{skill.fixed}</dd>
+            </div>
+          </dl>
+          {skill.media && (
+            <img
+              class="skill-media"
+              src={skill.media}
+              alt={`Supporting media for ${skill.name}`}
+              loading="lazy"
+            />
+          )}
+        </article>
+      ))}
+    </section>
+  )
+}
+
+<style>
+  .skill-stories {
+    margin-top: 3rem;
+    padding-top: 2rem;
+    border-top: 1px solid var(--border);
+  }
+
+  .skill-stories-hint {
+    color: var(--fg-muted);
+    font-size: 0.95rem;
+    max-width: var(--max-content);
+  }
+
+  .skill-node-list {
+    list-style: none;
+    margin: 1.5rem 0 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  .skill-node {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0.65rem 1rem;
+    background: var(--bg-elev);
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    color: var(--fg);
+    border-bottom: 1px solid var(--border-strong);
+    transition:
+      border-color 0.15s ease,
+      transform 0.15s ease;
+  }
+
+  .skill-node:hover,
+  .skill-node:focus-visible {
+    border-color: var(--accent-dim);
+    transform: translateY(-1px);
+  }
+
+  .skill-node.is-active {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+
+  .skill-node-name {
+    font-weight: 600;
+  }
+
+  .skill-node-domain {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--fg-subtle);
+  }
+
+  .skill-panel {
+    display: none;
+    max-width: var(--max-content);
+    margin: 2rem 0 0;
+    scroll-margin-top: 2rem;
+  }
+
+  .skill-panel.is-open,
+  .skill-panel:target {
+    display: block;
+  }
+
+  .skill-panel-head {
+    border-top: 1px solid var(--border);
+    padding-top: 1.5rem;
+    margin-bottom: 1.25rem;
+  }
+
+  .skill-panel-close {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--fg-muted);
+    background: var(--bg-elev);
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    padding: 0.3rem 0.6rem;
+    cursor: pointer;
+    margin-bottom: 1rem;
+    transition:
+      color 0.15s ease,
+      border-color 0.15s ease;
+  }
+
+  .skill-panel-close:hover {
+    color: var(--accent);
+    border-color: var(--accent-dim);
+  }
+
+  .skill-panel-domain {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--fg-subtle);
+    margin: 0;
+  }
+
+  .skill-panel-title {
+    margin: 0.3rem 0 0;
+    border-top: none;
+    padding-top: 0;
+    font-size: 1.5rem;
+  }
+
+  .skill-beats {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .skill-beat dt {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--accent);
+    margin-bottom: 0.3rem;
+  }
+
+  .skill-beat dd {
+    margin: 0;
+    color: var(--fg);
+  }
+
+  .skill-media {
+    display: block;
+    width: 100%;
+    height: auto;
+    margin-top: 1.5rem;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .skill-node {
+      transition: none;
+    }
+  }
+</style>
+
+<script>
+  // Skill-story reader: clicking a skill node reveals that skill's panel
+  // inline and hides the others. No page reload; the hash updates so a
+  // panel is deep-linkable. CSS :target is the no-JS fallback (see the
+  // .skill-panel:target rule above).
+  //
+  // Bound on astro:page-load (not DOMContentLoaded) because BaseLayout
+  // mounts <ClientRouter /> site-wide, so DOMContentLoaded won't fire again
+  // after client-side navigation.
+  function initSkillStories() {
+    const nodes = Array.from(
+      document.querySelectorAll<HTMLAnchorElement>(".js-skill-node"),
+    );
+    const panels = Array.from(document.querySelectorAll<HTMLElement>(".skill-panel"));
+    if (!nodes.length || !panels.length) return;
+
+    const reduceMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+
+    function open(id: string, scroll = true) {
+      let found = false;
+      panels.forEach((p) => {
+        const match = p.id === id;
+        p.classList.toggle("is-open", match);
+        if (match) found = true;
+      });
+      nodes.forEach((n) => {
+        const match = n.dataset.skill === id;
+        n.classList.toggle("is-active", match);
+        n.setAttribute("aria-current", match ? "true" : "false");
+      });
+      if (found && scroll) {
+        document
+          .getElementById(id)
+          ?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+      }
+    }
+
+    function close() {
+      panels.forEach((p) => p.classList.remove("is-open"));
+      nodes.forEach((n) => {
+        n.classList.remove("is-active");
+        n.setAttribute("aria-current", "false");
+      });
+      history.replaceState(null, "", location.pathname + location.search);
+    }
+
+    document.querySelectorAll(".js-skill-close").forEach((b) => {
+      b.addEventListener("click", close);
+    });
+
+    nodes.forEach((n) => {
+      n.addEventListener("click", (e) => {
+        e.preventDefault();
+        const id = n.dataset.skill;
+        if (!id) return;
+        history.replaceState(null, "", "#" + id);
+        open(id);
+      });
+    });
+
+    const hash = decodeURIComponent(location.hash.replace(/^#/, ""));
+    if (hash && document.getElementById(hash)?.classList.contains("skill-panel")) {
+      open(hash, true);
+    }
+  }
+
+  document.addEventListener("astro:page-load", initSkillStories);
+</script>
