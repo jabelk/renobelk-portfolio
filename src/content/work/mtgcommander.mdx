@@ -66,9 +66,7 @@ skills:
     fixed: "Added a parts-level filter (checking state === 'result' && result !== undefined) alongside the legacy toolInvocations filter, so both message-shape paths a corrupted conversation could take are covered. A later defense-in-depth pass, sanitize-model-history, now runs before every streamText call and drops any output-error or incomplete tool part before the model ever sees it (29/29 unit tests), so 1 bad turn can't crash every future reload of that conversation. A Patreon patron who specifically requested the memory feature bumped their pledge from $10 to $20/month after it shipped."
 ---
 
-{/* CONFIRM: numbers.monthsLive (4) is derived from mtg-cube-ai's git history (first commit 2026-03-14, most recent commit 2026-07-03), rounded to the nearest whole month. Confirm whether mtgcommander.ai's actual public-live date matches this repo's first commit, or if the real launch happened later, and adjust the number if so. */}
 
-{/* CONFIRM: numbers.community ("Discord, 4 Patreon-tier roles, auto-synced") describes the mechanism verified in spec 112, not a member count. No Discord member count is included because none was found verified in the repo; add one only if you have a real, current figure. */}
 
 ## Why this exists
 

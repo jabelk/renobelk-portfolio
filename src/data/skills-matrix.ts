@@ -23,7 +23,8 @@ export interface SkillDomain {
   skills: Skill[];
 }
 
-const financeAgent: SkillEvidence = { label: "Finance Agent", href: "/work/finance-agent/" };
+// Finance Agent is in the repo but draft-hidden (no /work/ page), so label-only, no link.
+const financeAgent: SkillEvidence = { label: "Finance Agent" };
 const mtgCommander: SkillEvidence = { label: "MTG Commander AI", href: "/work/mtgcommander/" };
 const novelFlame: SkillEvidence = { label: "NovelFlame", href: "/work/novelflame/" };
 const familyApp: SkillEvidence = { label: "Family App", href: "/work/family-app/" };
