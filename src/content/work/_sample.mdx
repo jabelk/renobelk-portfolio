@@ -1,0 +1,75 @@
+---
+title: "Sample DevRel Project"
+slug: "sample-devrel-project"
+tagline: "Building developer experience for AI infrastructure"
+description: "A representative example of technical content creation, community engagement, and API design advocacy. This project demonstrates how to bridge the gap between complex infrastructure and developer adoption through clear documentation and hands-on workshops."
+liveUrl: "https://example.com"
+repoUrl: "https://github.com/example/repo"
+whyThisStack: "Chose Python for rapid iteration and broad adoption in the AI community, AWS for scalability, and MDX for living documentation. The decision prioritized developer velocity over premature optimization."
+primaryStack:
+  - Python
+  - AWS
+  - MDX
+  - React
+domains:
+  - Developer Relations
+  - Infrastructure
+  - Documentation
+heroImage: "/images/sample-hero.png"
+gallery:
+  - "/images/sample-1.png"
+  - "/images/sample-2.png"
+  - "/images/sample-3.png"
+aiAssistNote: "Initial architecture design and boilerplate code were AI-assisted; all core logic and integration points were hand-written and tested. Documentation and examples refined with Claude for clarity."
+order: 1
+draft: true
+numbers:
+  monthsLive: 18
+  users: "2,400+ developers"
+  payments: "N/A"
+  infra:
+    - "Kubernetes"
+    - "PostgreSQL"
+    - "Redis"
+  auth: "OAuth 2.0 + API keys"
+  community: "150+ Slack members, weekly office hours"
+  marketing: "3 conference talks, 5 blog posts"
+  specCount: 12
+skills:
+  - name: "API Design"
+    domain: "Developer Relations"
+    decision: "Designed REST API with strong conventions: resource-based naming, consistent error codes, and semantic HTTP methods. Rejected GraphQL to prioritize simplicity for new entrants."
+    broke: "Initial versioning strategy broke backwards compatibility when we added pagination. Clients silently received truncated results."
+    measured: "Set up integration tests covering 8 critical paths, added monitoring for 4xx errors per endpoint, tracked adoption of new v2 endpoints in analytics."
+    fixed: "Implemented URL-based versioning with explicit v1/v2 routes, added deprecation headers 90 days ahead of cutoff, provided migration guide with code examples. All legacy clients remained functional during the transition."
+    media: "/images/api-design-diagram.png"
+  - name: "Documentation Systems"
+    domain: "Technical Writing"
+    decision: "Built living documentation using MDX embedded in the application. This let us ship code examples that run and are tested alongside the prose."
+    broke: "Code examples drifted from reality when APIs changed. Writers updated prose but missed the embedded snippets in 3 separate scenarios."
+    measured: "Added linting rules to flag stale examples, required CI to run every code block, and tracked docs-to-code freshness via coverage metrics (98% target)."
+    fixed: "Extracted code examples into versioned files imported into MDX, making them genuine source of truth. Integrated a doc test suite that failed the build if examples didn't work."
+  - name: "Community Scaling"
+    domain: "Developer Relations"
+    decision: "Shifted from 1:1 support to scalable asynchronous channels: Slack, GitHub Discussions, and recorded workshops. This freed capacity to do original content."
+    broke: "Early chat responses were slow (8+ hour turnaround). High-friction. People stopped asking."
+    measured: "Tracked response SLA (target 4 hours), counted threads per week, measured workshop attendance (before/after release), and surveyed satisfaction quarterly."
+    fixed: "Hired 2 senior devs into support rotation, created FAQ and troubleshooting runbook, recorded 6 hour-long workshop videos. Response time dropped to 2 hours median; engagement metrics grew 3x."
+---
+
+## Overview
+
+This is a fully-populated sample entry for the `work` collection. It exercises every field in the schema:
+
+- **Basic metadata**: title, slug, tagline, description
+- **URLs**: liveUrl, repoUrl (both optional but shown)
+- **Technical justification**: whyThisStack, primaryStack, domains
+- **Media**: heroImage, gallery (arrays of strings)
+- **Guidance**: aiAssistNote for transparency about AI involvement
+- **Organization**: order (numeric), draft (boolean, set to true)
+- **Metrics**: numbers object with all sub-fields populated (monthsLive, users, payments, infra[], auth, community, marketing, specCount)
+- **Skills**: array with one fully-detailed entry showing the decision/broke/measured/fixed narrative pattern, plus optional media
+
+The `skills` items tell an engineering-judgment story: what decision was made, what broke, how you measured the impact, and what you fixed. This pattern appears across all three examples above.
+
+All prose follows the style guide: zero em-dashes (use two hyphens or restructure), digits not spelled out ("2,400+ developers" not "two thousand four hundred"), contractions throughout ("you've", "we're", "didn't").
