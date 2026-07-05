@@ -1,7 +1,7 @@
 ---
 title: "NovelFlame"
 slug: "novelflame"
-tagline: "Built a token economy and a CCBill payment integration across 2 specs. Watched competitor reviews name counting-currency UX as the #1 complaint in the category. Ripped out both and shipped a flat subscription instead."
+tagline: "A multi-agent creative pipeline that turns a one-line prompt into an illustrated, multi-chapter interactive story: an art director agent, per-genre editors, and character-consistency tracking, ending in a soundtrack, an image gallery, and a generated video."
 description: "A production SvelteKit app I designed, built, and operate as the sole developer: interactive fiction generation across multiple LLM providers, gated behind a 2-layer content-safety filter. Billing runs through Stripe and Apple IAP, deployed through a CI pipeline I built from scratch. 189 specs drove the build with Claude Code, including a security audit that caught 4 real financial bugs and a monetization reset that killed an entire payment integration once the data said to."
 whyThisStack: "SvelteKit's server-first routing puts every auth and content-access gate at the server layer instead of scattered client checks, which mattered once a security audit found the auth guard excluded all /api routes from protection entirely. Supabase paired with Drizzle keeps the schema in version-controlled TypeScript instead of a GUI-managed database, important when a solo operator is the only reviewer of every migration. Cloudflare R2 skips egress fees for a product that generates images and video on every story. OpenTofu over Terraform was a license call, not a technical one: Terraform's 2023 move to the Business Source License made a state file holding database passwords and API keys a bigger risk than a drop-in open-source replacement with native state encryption. Railway's Docker-based deploy meant the Docker build itself, not a platform-specific buildpack, was the thing worth optimizing, which is why the multi-stage Dockerfile and GitHub Actions layer caching became their own spec."
 primaryStack:
@@ -36,7 +36,7 @@ numbers:
   monthsLive: 4
   users: "200+ users, 450+ story sessions in soft launch (Supabase, Jul 2026); still early on paid conversion"
   marketing: "Paid Facebook ads via a marketing partner (Jul 2026)"
-  payments: "Stripe subscriptions (web) + Apple IAP (iOS); CCBill fully retired Mar 2026"
+  payments: "Stripe subscriptions (web) + Apple IAP (iOS)"
   infra:
     - Cloudflare (DNS/CDN/R2/Turnstile)
     - OpenTofu IaC (~30 resources)
