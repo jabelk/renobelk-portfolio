@@ -21,11 +21,13 @@ domains:
   - Payments & Compliance
   - AI Content Safety
 aiAssistNote: "Built spec-driven with Claude Code across 189 specs (spec, plan, tasks per feature, with a CodeRabbit review pass on higher-risk PRs). I wrote every spec, reviewed every diff, and made the calls that don't show up in a diff: OpenTofu over Terraform, killing the token economy, moving token deduction before generation instead of after. Claude Code wrote most of the implementation and tests."
-order: 3
+order: 2
 draft: false
 liveUrl: "https://novelflame.ai"
 numbers:
   monthsLive: 4
+  users: "200+ users, 450+ story sessions in soft launch (Supabase, Jul 2026); still early on paid conversion"
+  marketing: "Paid Facebook ads via a marketing partner (Jul 2026)"
   payments: "Stripe subscriptions (web) + Apple IAP (iOS); CCBill fully retired Mar 2026"
   infra:
     - Cloudflare (DNS/CDN/R2/Turnstile)
@@ -69,7 +71,7 @@ skills:
 
 {/* CONFIRM: numbers.monthsLive (4) is measured from project inception (2026-03-03, per specs/001) to today. It does not represent a specific "launched to real users" date since I couldn't find one in the specs or CHANGELOG; adjust if you want it to mean something more specific (e.g. time since the domain migration to novelflame.ai on 2026-03-11). */}
 
-{/* CONFIRM: numbers deliberately omits users, community, and marketing figures. Spec 122 (2026-04-20) states NovelFlame had 0 paying users at that point, and I found no later data confirming a current user count, Discord member count, or an active paid-ad channel (the marketing spec describes an organic Reddit/Discord/Twitter plan, and an earlier doc explicitly rules out Meta/Google ads under the old adult-content policy). Add real numbers here if you have them from the Stripe/Discord dashboards directly. */}
+{/* Live numbers (Supabase query, 2026-07-04): ~211 user_preferences (200+ users), 457 story sessions, 2 paid entitlements (still early on conversion). Now in soft launch with paid Facebook ads via a marketing partner, made possible once the product moved to PG-13. The "0 paying users" narrative below is the accurate April 2026 (spec 122) state that drove the monetization reset, not the current one. */}
 
 ## Why this exists
 
