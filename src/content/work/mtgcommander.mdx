@@ -1,0 +1,186 @@
+---
+title: "MTG Commander AI"
+slug: "mtgcommander"
+tagline: "A RAG pipeline turned 32,807 podcast transcript chunks into 41,790 structured insights, then Claude Sonnet cross-checked every one against real card text and deleted 5,236 it had invented."
+description: "mtgcommander.ai is a live Magic: The Gathering Commander deck-building assistant. A Python RAG and MCP-tool backend, grounded in 33K+ cards and transcripts from 10+ podcast and YouTube shows, powers a SvelteKit chat frontend that builds full 100-card decks, checks them against EDHREC and bracket data, and hands off to Mana Pool for the actual card purchase. It runs on real Stripe subscriptions, a real marketplace integration, and a real Discord community, not a demo."
+liveUrl: "https://mtgcommander.ai"
+whyThisStack: "The backend and knowledge pipeline are Python: the raw material is 33K+ cards from Scryfall plus tens of thousands of podcast and YouTube transcript chunks, and Python's ecosystem for batch LLM calls, embeddings, and direct Postgres access fit that better than anything else considered. The web frontend is SvelteKit with the Vercel AI SDK, not Next.js. The project's own feature-branch folder is literally named 026-nextjs-frontend, a name left over from the initial plan before SvelteKit's smaller client bundle and native streaming primitives won the actual build. The 'Vercel' in the SDK's name is just a library brand, not the deploy target: both the SvelteKit frontend and the Python backend deploy to Railway via a Node adapter, not to Vercel. Supabase Postgres with pgvector holds the 33K-card embedding index and the structured-insight knowledge base in the same database that already handles auth and conversation storage, instead of standing up a separate vector store for 1 extra table. FastMCP exposes the deck-building tool surface (search_cards, find_similar_cards, analyze_cube, build_commander_deck, and more) as the same interface any MCP client, not just this web app, could connect to directly."
+primaryStack:
+  - Python 3.12
+  - FastMCP
+  - Anthropic Claude (Opus for extraction, Sonnet Batch API for validation)
+  - OpenAI text-embedding-3-small
+  - Supabase (Postgres + pgvector + Auth)
+  - SvelteKit + Vercel AI SDK v6
+  - Stripe, Mana Pool, Patreon + Ko-fi
+  - Railway
+domains:
+  - Agentic AI
+  - RAG & Knowledge Systems
+  - AI Safety & Data Quality
+  - Systems Reliability
+  - Full-Stack Product Engineering
+aiAssistNote: "It's spec-driven, built with Claude Code across 164 specs (spec, plan, tasks, and research docs per feature, with a dedicated research pass on the trickier ones like the hallucination cleanup and the tool-routing audit). I wrote every spec and reviewed every diff; Claude Code wrote most of the implementation and tests. The RAG grounding fix, the tool-routing consolidation, and the conversation-history hardening below all came out of that same spec-plan-implement-review loop, not a rewrite from scratch."
+order: 2
+draft: false
+numbers:
+  monthsLive: 4
+  infra:
+    - Python 3.12
+    - Supabase Postgres + pgvector
+    - FastMCP
+    - SvelteKit + Vercel AI SDK v6
+    - Railway
+  auth: "Supabase Auth (Google, Discord, Twitch, email) + RLS per user"
+  payments: "Stripe (Free / Builder $5 / Pro $10) + Mana Pool checkout + Patreon/Ko-fi"
+  community: "Discord (4 Patreon-tier roles, auto-synced on pledge/cancel)"
+  specCount: 164
+skills:
+  - name: "RAG Knowledge Pipeline"
+    domain: "RAG & Knowledge Systems"
+    decision: "The knowledge base started as 32,807 raw podcast and YouTube transcript chunks (500-1000 tokens each, embedded and stored in Supabase pgvector) retrieved by plain similarity search. I added a structured extraction layer on top: a Claude pipeline that discards pure noise (sponsor reads, show intros, off-topic tangents) and extracts card-linked insights tagged with color identity, archetype, and a recency era marker, with any creator or show attribution stripped before storage."
+    broke: "Raw-chunk similarity search alone wasn't good enough to ship. A query about a specific commander returned transcript fragments rambling about a different, unrelated commander, a sponsor read, and a personal anecdote, because vector similarity over raw transcript noise has no way to separate signal from filler."
+    measured: "Compared raw-chunk retrieval against the new structured-insight retrieval side by side for the same card queries, and tracked the share of the 32,807 chunks that actually yielded a usable insight versus discardable noise, plus the card-name resolution rate against the existing card database."
+    fixed: "The extraction pass turned the 32,807 raw chunks into 41,790 structured, card-linked insights, each tagged with color identity and an archetype label, with source attribution stripped before it ever reaches the database. Recency weighting (post-2024 bracket-system content ranked above older meta advice) replaced a flat similarity score, so a 2020 evaluation of a since-banned card doesn't outrank a 2026 one."
+  - name: "Insight Hallucination Diagnosis and Cleanup"
+    domain: "AI Safety & Data Quality"
+    decision: "An earlier pilot validator (a Graphiti spike) had already caught 1 confirmed hallucination: an insight claiming a card had an ability it doesn't actually have. That pilot flagged 24% of insights with many false positives, since it was regex matching a mechanic keyword anywhere near a card name. I replaced it with a Claude Sonnet Batch API validator that reads each insight next to the actual card's oracle text and keywords, and labels it VALID, HALLUCINATION, or OPINION instead of a binary pass/fail."
+    broke: "The regex validator couldn't tell 'Card X has flying' (a false claim to catch) from 'Card X enables landfall strategies' (a true strategic observation to keep), because it had no word boundaries, no proximity window, and no attribution-verb check. It matched 'ward' inside 'reward' as often as it caught a real hallucination."
+    measured: "Submitted 33,040 insight-card pairs as a Sonnet Batch API job (about $15) and tallied the 3 labels, then manually reviewed a sample of the flagged insights to separate confirmed hallucinations from false positives that mentioned a stat or usage claim not literally present in the oracle text."
+    fixed: "8,380 of the 33,040 pairs (25.4%) were flagged. Of those, 5,236 were confirmed wrong mechanic claims and got deleted; the other 3,144 were false positives (a stats claim outside the oracle text, not a mechanic error) and were kept. A separate partial-matching pass on unresolved card names (mostly double-faced cards saved under 1 half of their full name) resolved 1,208 more links, leaving 902 genuinely unresolvable. The knowledge base went from 41,790 unvalidated insights to 36,554 confirmed-clean ones, and the extraction pipeline now validates every new insight the same way before it's ever stored."
+  - name: "MCP Tool Server and Usage-Driven Routing"
+    domain: "Agentic AI"
+    decision: "The conversational agent is a FastMCP tool server exposing the deck-building surface (search_cards, get_card, find_similar_cards, analyze_cube, build_commander_deck, search_expert_knowledge, and more) as the same interface Claude Desktop or any other MCP client could connect to directly, not a bespoke API only the web chat can call. After launch, instead of guessing which tools the model actually needed, I audited real usage: 293 tool calls across 50 logged conversations."
+    broke: "The audit showed a long tail of dead weight: 12 of the 30 exposed tools recorded 0 calls across all 50 conversations, while search_cards and get_card alone accounted for 160 of the 293 calls (55%). A flat, always-available tool list makes tool selection noisier for the model and gives no signal about which capability is actually doing anything."
+    measured: "Built a frequency table (calls and percentage per tool) directly from the 50-conversation sample, then classified each tool as keep, merge, internalize, or needs-routing based on that data instead of intuition. search_expert_knowledge had 16 calls but got reclassified INTERNALIZE, since it turned out to be called by build_commander_deck and brainstorm_cards internally, never directly by the model in response to a user ask."
+    fixed: "Zero- and near-zero-call tools got consolidated by their real verdict: explore_commanders (4 calls) merged into search_commanders_by_strategy, get_card_price (1 call) merged into price_card_list, and suggest_creator_decks (0 calls) got removed as a standalone tool since brainstorm_cards already baked it in. The remaining 0-call tools (rules lookups, post-build analysis) moved behind phase-based activeTools routing, so they only surface once their precondition step has actually run instead of sitting in front of the model on every single turn."
+  - name: "Persisted Conversation History"
+    domain: "Systems Reliability"
+    decision: "Before this feature, every page refresh wiped the chat entirely. I built full conversation persistence: every message and tool invocation auto-saves to Postgres scoped to the authenticated user, a sidebar restores the full workspace state (including rendered tool results) on reload, and conversations auto-title from the first message or the commander name if a deck was built."
+    broke: "After persistence shipped, a runaway multi-call tool loop in 1 conversation left corrupted, incomplete tool-invocation records in that conversation's stored history. Reloading it crashed the chat entirely with AI_MessageConversionError: 'ToolInvocation must have a result,' because the AI SDK v4 message-reconstruction path reads message.parts first, and the existing filter only cleaned the older message.toolInvocations field."
+    measured: "Reproduced the crash by loading the specific corrupted conversation and confirming the same AI_MessageConversionError client-side, then compared the 2 code paths (toolInvocations vs. parts) the SDK actually reads from to find where the existing filter fell short."
+    fixed: "Added a parts-level filter (checking state === 'result' && result !== undefined) alongside the legacy toolInvocations filter, so both message-shape paths a corrupted conversation could take are covered. A later defense-in-depth pass, sanitize-model-history, now runs before every streamText call and drops any output-error or incomplete tool part before the model ever sees it (29/29 unit tests), so 1 bad turn can't crash every future reload of that conversation."
+---
+
+{/* CONFIRM: numbers.monthsLive (4) is derived from mtg-cube-ai's git history (first commit 2026-03-14, most recent commit 2026-07-03), rounded to the nearest whole month. Confirm whether mtgcommander.ai's actual public-live date matches this repo's first commit, or if the real launch happened later, and adjust the number if so. */}
+
+{/* CONFIRM: numbers.community ("Discord, 4 Patreon-tier roles, auto-synced") describes the mechanism verified in spec 112, not a member count. No Discord member count is included because none was found verified in the repo; add one only if you have a real, current figure. */}
+
+## Why this exists
+
+A friend of mine, Wes, was building a homebrew Magic: The Gathering cube by hand. He had 10 defined archetypes and a card list, but no easy way to check whether his black-green reanimator support was actually deep enough or just felt deep. Commander deckbuilding has the same problem at a bigger scale. EDHREC gives you popularity data, not the reasoning a good player would give you for why a specific card fits your specific 99. mtgcommander.ai is a conversational assistant that reads real card data (33K+ Scryfall cards) and real expert reasoning (transcript chunks from 10+ podcast and YouTube shows), builds full Commander decks against a stated budget and bracket, and hands the actual purchase off to Mana Pool. It runs as a live subscription product today, not a prototype.
+
+## Architecture
+
+<div style="overflow-x: auto; margin: 2rem 0;">
+<svg viewBox="0 0 960 640" width="100%" style="min-width: 720px; display: block; font-family: var(--font-mono);" role="img" aria-labelledby="arch-title arch-desc">
+  <title id="arch-title">mtgcommander.ai pipeline</title>
+  <desc id="arch-desc">Card data, podcast transcripts, and deck imports feed a Python extraction and embedding pipeline into a shared Postgres and pgvector knowledge base. A FastMCP tool server exposes that knowledge base as discrete tools that a SvelteKit chat agent orchestrates through usage-informed routing. A Stripe soft-limit gate manages subscription tiers, and the actual card purchase completes on Mana Pool, outside this app.</desc>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)"></path>
+    </marker>
+    <marker id="arrow-muted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--fg-muted)"></path>
+    </marker>
+  </defs>
+
+  {/* Row 1: sources */}
+  <g>
+    <rect x="20" y="20" width="290" height="58" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+    <text x="165" y="44" text-anchor="middle" font-size="13" fill="var(--fg)">Scryfall Bulk Data</text>
+    <text x="165" y="62" text-anchor="middle" font-size="11" fill="var(--fg-muted)">33K+ cards, oracle text + legality</text>
+
+    <rect x="335" y="20" width="290" height="58" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+    <text x="480" y="44" text-anchor="middle" font-size="13" fill="var(--fg)">Podcast + YouTube Transcripts</text>
+    <text x="480" y="62" text-anchor="middle" font-size="11" fill="var(--fg-muted)">32,807 raw chunks, 10+ shows</text>
+
+    <rect x="650" y="20" width="290" height="58" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+    <text x="795" y="44" text-anchor="middle" font-size="13" fill="var(--fg)">CubeCobra / Moxfield / EDHREC</text>
+    <text x="795" y="62" text-anchor="middle" font-size="11" fill="var(--fg-muted)">cube, deck &amp; meta imports</text>
+  </g>
+
+  {/* Arrows converging to extraction pipeline */}
+  <path d="M 165 78 L 165 100 L 480 100 L 480 122" fill="none" stroke="var(--accent)" stroke-width="1.5"></path>
+  <path d="M 480 78 L 480 122" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
+  <path d="M 795 78 L 795 100 L 480 100 L 480 122" fill="none" stroke="var(--accent)" stroke-width="1.5"></path>
+
+  {/* Extraction + embedding pipeline */}
+  <rect x="280" y="122" width="400" height="56" rx="6" fill="var(--bg-elev)" stroke="var(--accent-dim)" stroke-width="1.5"></rect>
+  <text x="480" y="146" text-anchor="middle" font-size="13" fill="var(--fg)">Python Extraction + Embedding Pipeline</text>
+  <text x="480" y="164" text-anchor="middle" font-size="11" fill="var(--fg-muted)">chunk, embed, extract, validate against oracle text</text>
+
+  <path d="M 480 178 L 480 222" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
+
+  {/* Knowledge base */}
+  <rect x="230" y="222" width="500" height="56" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="480" y="246" text-anchor="middle" font-size="13" fill="var(--fg)">Supabase Postgres + pgvector</text>
+  <text x="480" y="264" text-anchor="middle" font-size="11" fill="var(--fg-muted)">cards, structured_insights, decks, conversations (RLS per user)</text>
+
+  {/* Arrows fanning out to 5 MCP tools */}
+  <path d="M 480 278 L 480 297 L 102 297 L 102 316" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
+  <path d="M 480 278 L 480 297 L 291 297 L 291 316" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
+  <path d="M 480 278 L 480 316" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
+  <path d="M 480 278 L 480 297 L 669 297 L 669 316" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
+  <path d="M 480 278 L 480 297 L 858 297 L 858 316" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
+
+  {/* Row: MCP tools */}
+  <g>
+    <rect x="15" y="316" width="174" height="60" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+    <text x="102" y="342" text-anchor="middle" font-size="12" fill="var(--fg)">search_cards</text>
+    <text x="102" y="360" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">+ get_card: 160/293 calls (55%)</text>
+
+    <rect x="204" y="316" width="174" height="60" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+    <text x="291" y="342" text-anchor="middle" font-size="12" fill="var(--fg)">find_similar_cards</text>
+    <text x="291" y="360" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">pgvector similarity</text>
+
+    <rect x="393" y="316" width="174" height="60" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+    <text x="480" y="342" text-anchor="middle" font-size="12" fill="var(--fg)">analyze_cube</text>
+    <text x="480" y="360" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">+ suggest_cards: archetype gaps</text>
+
+    <rect x="582" y="316" width="174" height="60" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+    <text x="669" y="342" text-anchor="middle" font-size="12" fill="var(--fg)">build_commander_deck</text>
+    <text x="669" y="360" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">EDHREC + bracket + budget</text>
+
+    <rect x="771" y="316" width="174" height="60" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+    <text x="858" y="342" text-anchor="middle" font-size="12" fill="var(--fg)">search_expert_knowledge</text>
+    <text x="858" y="360" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">internalized (RAG insights)</text>
+  </g>
+
+  {/* Arrows converging to agent loop */}
+  <path d="M 102 376 L 102 388 L 480 388 L 480 398" fill="none" stroke="var(--accent)" stroke-width="1.5"></path>
+  <path d="M 291 376 L 291 388 L 480 388 L 480 398" fill="none" stroke="var(--accent)" stroke-width="1.5"></path>
+  <path d="M 480 376 L 480 398" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
+  <path d="M 669 376 L 669 388 L 480 388 L 480 398" fill="none" stroke="var(--accent)" stroke-width="1.5"></path>
+  <path d="M 858 376 L 858 388 L 480 388 L 480 398" fill="none" stroke="var(--accent)" stroke-width="1.5"></path>
+
+  {/* Agent loop */}
+  <rect x="230" y="398" width="500" height="56" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="480" y="422" text-anchor="middle" font-size="13" fill="var(--fg)">SvelteKit + Vercel AI SDK v6 Agent Loop</text>
+  <text x="480" y="440" text-anchor="middle" font-size="11" fill="var(--fg-muted)">phase-based activeTools routing (293-call usage audit)</text>
+
+  <path d="M 480 454 L 480 476" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
+
+  {/* Stripe gate */}
+  <rect x="280" y="476" width="400" height="56" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="480" y="500" text-anchor="middle" font-size="13" fill="var(--fg)">Stripe Soft-Limit Gate</text>
+  <text x="480" y="518" text-anchor="middle" font-size="11" fill="var(--fg-muted)">Free, Builder $5/mo, Pro $10/mo</text>
+
+  {/* Human/marketplace boundary */}
+  <path d="M 480 532 L 480 556" fill="none" stroke="var(--fg-muted)" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrow-muted)"></path>
+  <text x="500" y="550" font-size="10.5" fill="var(--fg-muted)">user clicks Buy</text>
+
+  <rect x="250" y="556" width="460" height="56" rx="6" fill="none" stroke="var(--fg-muted)" stroke-width="1.5" stroke-dasharray="4 3"></rect>
+  <text x="480" y="580" text-anchor="middle" font-size="13" fill="var(--fg)">Completed on Mana Pool</text>
+  <text x="480" y="598" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">pre-built cart handoff, real payment completes off-platform</text>
+</svg>
+</div>
+
+Card data, podcast and YouTube transcripts, and cube or deck imports feed a Python pipeline that chunks, embeds, and extracts structured insights, validating every mechanic claim against the card's own oracle text before anything is stored. All of it lives in 1 Supabase Postgres database with pgvector, alongside auth and conversation history, not a separate vector store. A FastMCP tool server exposes that knowledge base as discrete, individually callable tools (the same tools a raw MCP client like Claude Desktop could call directly), and a SvelteKit chat frontend running the Vercel AI SDK orchestrates those tools through phase-based routing informed by a real usage audit. A Stripe soft-limit gate manages Free, Builder, and Pro tiers, and when a user is ready to buy the deck, the purchase itself completes on Mana Pool, not inside this app.
+
+## What shipped
+
+By spec 164 the platform had grown from a favor for Wes's cube into a subscription product: Stripe tiers, a Mana Pool checkout handoff, a Patreon-synced Discord community, and a knowledge base that validates itself before storing anything new. The hallucination cleanup alone processed 33,040 insight-card pairs, deleted 5,236 confirmed hallucinations, and left the extraction pipeline validating every new insight against oracle text before storage, not just the backfill. The tool-routing audit replaced guesswork with 293 real tool calls across 50 conversations, consolidating or rerouting 12 tools that had 0 calls in the sample. All of these fixes came out of the same spec, plan, tasks, and research loop with Claude Code, not a rewrite from scratch.
+
+The extraction pipeline still runs as a batch process, not real time. That's deliberate: validating a new insight against a card's oracle text before it ever reaches a user matters more than shipping it a few minutes faster.
