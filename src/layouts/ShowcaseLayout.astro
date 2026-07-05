@@ -23,6 +23,8 @@ const {
   aiAssistNote,
   numbers,
   skills,
+  heroImage,
+  gallery,
 } = entry.data;
 ---
 
@@ -57,11 +59,23 @@ const {
       </div>
     </header>
 
+    {heroImage && (
+      <img class="showcase-hero" src={heroImage} alt={`${title} product screenshot`} loading="eager" />
+    )}
+
     <ByTheNumbers numbers={numbers} />
 
     <div class="showcase-body">
       <slot />
     </div>
+
+    {gallery && gallery.length > 0 && (
+      <section class="showcase-gallery" aria-label="More screenshots">
+        {gallery.map((src) => (
+          <img class="showcase-gallery-img" src={src} alt={`${title} screenshot`} loading="lazy" />
+        ))}
+      </section>
+    )}
 
     <SkillStories skills={skills} />
   </article>
@@ -122,5 +136,29 @@ const {
 
   .showcase-body {
     margin-top: 1rem;
+  }
+
+  .showcase-hero {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+    margin: 1.5rem 0;
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+  }
+
+  .showcase-gallery {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 1rem;
+    margin: 2rem 0;
+  }
+
+  .showcase-gallery-img {
+    width: 100%;
+    height: auto;
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
   }
 </style>
