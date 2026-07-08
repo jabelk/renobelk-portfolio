@@ -3,3 +3,9 @@ node_modules/
 .astro/
 .env
 .superpowers/
+
+# Private source material — never publish to this public repo
+*-ridgeline.txt
+*russell*
+transcripts/
+*.transcript.txt

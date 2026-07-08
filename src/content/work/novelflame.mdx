@@ -10,10 +10,10 @@ primaryStack:
   - Supabase (Postgres + Auth)
   - Drizzle ORM
   - Cloudflare R2 + Turnstile
-  - Vercel AI SDK (xAI, OpenAI, Anthropic, Google providers)
+  - Vercel AI SDK (xAI + OpenAI in production; Claude + Gemini as eval judges)
   - Stripe + Apple IAP
   - OpenTofu (IaC)
-  - Docker + GitHub Actions + GHCR
+  - Docker + GitHub Actions
   - PostHog (product analytics)
   - Loops.so (lifecycle + newsletter email)
   - Railway
@@ -36,12 +36,13 @@ numbers:
   monthsLive: 4
   users: "200+ users, 450+ story sessions in soft launch (Supabase, Jul 2026); still early on paid conversion"
   marketing: "Paid Facebook ads via a marketing partner (Jul 2026)"
-  payments: "Stripe subscriptions (web) + Apple IAP (iOS)"
+  payments: "Stripe subscriptions (web); Apple IAP built + tested, dormant (never shipped)"
   infra:
     - Cloudflare (DNS/CDN/R2/Turnstile)
     - OpenTofu IaC (~30 resources)
-    - Docker multi-stage + GHCR
+    - Docker multi-stage (non-root)
     - Railway
+    - Axiom + Discord alerting
   auth: "Supabase Auth via SSR cookies"
   specCount: 189
 skills:
@@ -93,6 +94,18 @@ skills:
     broke: "Each protection had grown independently and unevenly. The upstream providers run their own moderation, but those thresholds change without notice and differ by provider. Trigger warnings weren't firing on stories that clearly needed them: 1 story with incest mentions published to the discover feed with no warning. And the 3 user-text-to-LLM surfaces each had their own ad-hoc mitigation, with no shared threat model and 1 narrative-continuation path that had no injection gate at all."
     measured: "For the content filter I set explicit target rates against dedicated test sets: 100% of prohibited prompts blocked pre-generation, under 1% false positives on legitimate content, and 95%+ catch on evasions like leetspeak and unicode substitution. For injection I wrote an adversarial regression suite that proves each chokepoint holds, including unicode-lookalike probes against the delimiter-wrapped paths."
     fixed: "Filter actions are tiered: a hard block for the highest-risk category, a soft warning with a suggested rephrase for lower-risk ones, each logged with a content hash and the matched rule for audit, plus a user report button that files straight to GitHub Issues so a solo operator still has a review queue. The trigger-warning enum drives both the auto-classifier and the per-user opt-in filter, and the injection work added the missing pre-filter on the un-gated path plus a documented threat model so the defense stays load-bearing as the app changes."
+  - name: "A Per-Call Cost Ledger for Unit Economics"
+    domain: "Production Cost Governance"
+    decision: "An unlimited-subscription product where every story beat fans out to a dozen model calls across providers can lose money invisibly. So every text, image, and video call writes a ledger row, priced at write time from a per-provider rate table: model, tokens, latency, provider cost to 6 decimal places, tied to the story session and segment position. I've switched models several times over the product's short life, and each swap changes the unit economics; the ledger is what makes those swaps decisions instead of bets."
+    broke: "Naive cost accounting gets the billing rules wrong in ways that compound. OpenAI's cached input tokens bill at a 10x discount and its reasoning tokens roll into output tokens, so a rate table that ignores either misprices every gpt-5.5 call. And a generation that fails midway still costs real provider money, so a ledger that only logs successes systematically understates what the product spends."
+    measured: "The rate table encodes the real billing rules, cached-input discounts and reasoning-token treatment included; unknown models fall back to safe default rates instead of logging zero; and the failure path logs its cost before the error event goes out to the reader, so a failed generation isn't free in the books when it wasn't free at the provider."
+    fixed: "The flagship-versus-utility tier split, the model swaps, and the subscription break-even math all read off this ledger plus the Langfuse traces: cost per completed story dropped over 30% in the routing work above, and 'unlimited' is priced against actuals instead of estimates. The trade-off between cost and quality never goes away in an AI product; the ledger just makes it visible enough to manage."
+  - name: "Web-First Mobile: Killing My Own Native App"
+    domain: "Product Scope & Solo-Dev Economics"
+    decision: "Growth thinking said interactive fiction wants a native iOS app, I'd deliberately picked aligned JavaScript stacks across my products to keep a native path open, and I'd never shipped a native app before — so I built it. The app reached near feature parity with the web product and I took the launch prep to the edge of pulling the trigger: build pipeline, Apple IAP plumbing end to end, the full App Store application with screenshots and pricing tiers, Apple Pay tested on my own phone. Then I deliberately stopped and made the responsive web app the mobile experience."
+    broke: "Two surfaces more than doubled the solo workload. Native build times are long, every change needed smoke-testing on web and then again on iOS, and the redeploy-and-retest cycle fought directly against the fast spec-driven iteration loop the rest of the product runs on. I'd already walked this exact road on MTG Commander with a much less mature app and pulled back for the same reason."
+    measured: "The push to keep going was growth; the evidence said otherwise. My marketing partner's feedback from real users was that the mobile browser experience was already genuinely good, and my own cycle times said the native surface was consuming close to half my capacity while adding little the web app didn't already deliver."
+    fixed: "The product is web-first on mobile and the app never shipped. Months unmaintained now, it would take real rework to revive, and that's the point: the maintenance I'm not paying is exactly the capacity that goes to user acquisition, marketing, and quality instead. The IAP infrastructure stays built and tested for the day a native app earns its keep. Knowing what not to maintain is the highest-leverage scope decision a solo operator makes."
 ---
 
 
@@ -104,107 +117,320 @@ Billing was a smaller side of the work than the AI. It shipped on a pay-per-stor
 
 ## Architecture
 
-<div style="overflow-x: auto; margin: 2rem 0;">
-<svg viewBox="0 0 960 720" width="100%" style="min-width: 720px; display: block; font-family: var(--font-mono);" role="img" aria-labelledby="nf-arch-title nf-arch-desc">
-  <title id="nf-arch-title">NovelFlame request and generation pipeline</title>
-  <desc id="nf-arch-desc">A reader's request passes through Supabase auth and a subscription gate, then an input content-safety scan, before fanning out to one of 3 LLM providers for generation. Output passes a second safety scan before media lands in Cloudflare R2 and streams back to the reader. Payments and infrastructure/CI/CD run underneath the whole pipeline.</desc>
+Five views, because the request path, the generation pipeline, the money, the release pipeline, and the operations are genuinely different machines — flattening them into one diagram buries the parts a production app is actually judged on.
 
+### The request path: five gates before a model
+
+<div style="overflow-x: auto; margin: 2rem 0;">
+<svg viewBox="0 0 990 456" width="100%" style="min-width: 720px; display: block; font-family: var(--font-mono);" role="img" aria-labelledby="nf1-title nf1-desc">
+  <title id="nf1-title">Request path and gates</title>
+  <desc id="nf1-desc">A reader's request passes the Cloudflare edge, Supabase SSR auth, per-surface rate limits, and the subscription gate, then an input safety gate of CSAM blocklist, OpenAI moderation, and prompt-injection filtering, before reaching the story generation pipeline. The response streams back to the reader over SSE.</desc>
   <defs>
-    <marker id="nf-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <marker id="nf1-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)"></path>
     </marker>
-    <marker id="nf-arrow-muted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+  </defs>
+
+  <rect x="330" y="20" width="300" height="54" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="480" y="44" text-anchor="middle" font-size="13" fill="var(--fg)">Reader</text>
+  <text x="480" y="62" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">browser (SvelteKit SSR) · iOS app</text>
+
+  <path d="M 430 74 L 430 104" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf1-a)"></path>
+
+  <rect x="280" y="104" width="400" height="64" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="480" y="128" text-anchor="middle" font-size="13" fill="var(--fg)">Cloudflare edge</text>
+  <text x="480" y="146" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">DNS/CDN · Turnstile bot check · CSP headers</text>
+  <text x="480" y="160" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">— all codified in OpenTofu</text>
+
+  <path d="M 480 168 L 480 184 L 165 184 L 165 198" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf1-a)"></path>
+
+  <rect x="20" y="198" width="290" height="68" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="165" y="222" text-anchor="middle" font-size="12" fill="var(--fg)">Supabase Auth (SSR)</text>
+  <text x="165" y="240" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">cookie session (web) ·</text>
+  <text x="165" y="254" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">Bearer JWT (mobile)</text>
+
+  <rect x="335" y="198" width="290" height="68" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="480" y="222" text-anchor="middle" font-size="12" fill="var(--fg)">Rate limits</text>
+  <text x="480" y="240" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">Upstash sliding window —</text>
+  <text x="480" y="254" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">per-surface caps</text>
+
+  <rect x="650" y="198" width="290" height="68" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="795" y="222" text-anchor="middle" font-size="12" fill="var(--fg)">Subscription gate</text>
+  <text x="795" y="240" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">free: 3 stories per 30 days →</text>
+  <text x="795" y="254" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">402 paywall · Plus: unlimited</text>
+
+  <path d="M 310 232 L 333 232" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf1-a)"></path>
+  <path d="M 625 232 L 648 232" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf1-a)"></path>
+
+  <path d="M 795 266 L 795 282 L 480 282 L 480 296" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf1-a)"></path>
+
+  <rect x="280" y="296" width="400" height="64" rx="6" fill="var(--bg-elev)" stroke="var(--accent-dim)" stroke-width="1.5"></rect>
+  <text x="480" y="320" text-anchor="middle" font-size="13" fill="var(--fg)">Input safety gate</text>
+  <text x="480" y="338" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">CSAM blocklist → OpenAI Moderation API</text>
+  <text x="480" y="352" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">→ prompt-injection pattern filter</text>
+
+  <path d="M 480 360 L 480 376" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf1-a)"></path>
+
+  <rect x="280" y="376" width="400" height="60" rx="6" fill="var(--bg-elev)" stroke="var(--accent-dim)" stroke-width="1.5"></rect>
+  <text x="480" y="400" text-anchor="middle" font-size="13" fill="var(--fg)">Story generation pipeline</text>
+  <text x="480" y="418" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">multi-agent — next diagram · media to Cloudflare R2</text>
+
+  <path d="M 686 406 L 950 406 L 950 47 L 636 47" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf1-a)"></path>
+  <text transform="rotate(-90 972 226)" x="972" y="226" text-anchor="middle" font-size="10" fill="var(--fg-muted)">SSE stream back — 15s heartbeat, segment by segment</text>
+</svg>
+</div>
+
+Nothing reaches a model until a request clears five gates in order: the Cloudflare edge (DNS, CDN, Turnstile on auth forms, CSP headers — all managed as OpenTofu code, not dashboard clicks), Supabase SSR auth, per-surface rate limits on Upstash Redis (story generation, signup, purchases, and feedback each have their own cap), the subscription gate (free tier is 3 completed stories per 30 days, answered with a 402 paywall; Plus is unlimited), and the input safety gate — a CSAM blocklist, the OpenAI Moderation API, and a prompt-injection filter covering the places user-typed text reaches an LLM. The response streams back over SSE with a 15-second heartbeat and hard timeouts, so a stuck generation fails visibly instead of hanging the reader.
+
+### The generation pipeline: a relay of specialists
+
+<div style="overflow-x: auto; margin: 2rem 0;">
+<svg viewBox="0 0 960 316" width="100%" style="min-width: 720px; display: block; font-family: var(--font-mono);" role="img" aria-labelledby="nf2-title nf2-desc">
+  <title id="nf2-title">Story generation pipeline</title>
+  <desc id="nf2-desc">Each story beat runs eight stages: narrative on gpt-5.5, a genre editorial agent, a deterministic beat classifier, an art director authoring the image prompt on Grok, character identity locks with reference portraits, illustration, a generated video at the climax, and a trigger-warning classifier. Model-powered stages are marked with the model named in each.</desc>
+  <defs>
+    <marker id="nf2-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)"></path>
+    </marker>
+  </defs>
+
+  <rect x="30" y="40" width="210" height="68" rx="6" fill="var(--bg-elev)" stroke="var(--accent-dim)" stroke-width="1.5"></rect>
+  <text x="135" y="64" text-anchor="middle" font-size="12" fill="var(--fg)">1 · Story beat</text>
+  <text x="135" y="82" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">OpenAI gpt-5.5,</text>
+  <text x="135" y="96" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">structured output</text>
+
+  <rect x="260" y="40" width="210" height="68" rx="6" fill="var(--bg-elev)" stroke="var(--accent-dim)" stroke-width="1.5"></rect>
+  <text x="365" y="64" text-anchor="middle" font-size="12" fill="var(--fg)">2 · Editorial agent</text>
+  <text x="365" y="82" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">genre style guides; strips</text>
+  <text x="365" y="96" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">AI-tell prose, 2nd pass</text>
+
+  <rect x="490" y="40" width="210" height="68" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="595" y="64" text-anchor="middle" font-size="12" fill="var(--fg)">3 · Beat classifier</text>
+  <text x="595" y="82" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">deterministic: beat type,</text>
+  <text x="595" y="96" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">focal cast, shot recipe</text>
+
+  <rect x="720" y="40" width="210" height="68" rx="6" fill="var(--bg-elev)" stroke="var(--accent-dim)" stroke-width="1.5"></rect>
+  <text x="825" y="64" text-anchor="middle" font-size="12" fill="var(--fg)">4 · Art director</text>
+  <text x="825" y="82" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">image prompt on xAI Grok —</text>
+  <text x="825" y="96" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">kept deliberately literal</text>
+
+  <path d="M 240 74 L 258 74" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf2-a)"></path>
+  <path d="M 470 74 L 488 74" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf2-a)"></path>
+  <path d="M 700 74 L 718 74" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf2-a)"></path>
+  <path d="M 825 108 L 825 176" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf2-a)"></path>
+
+  <rect x="720" y="176" width="210" height="68" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="825" y="200" text-anchor="middle" font-size="12" fill="var(--fg)">5 · Identity locks</text>
+  <text x="825" y="218" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">appearance block + reference</text>
+  <text x="825" y="232" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">portraits · vision QA loop</text>
+
+  <rect x="490" y="176" width="210" height="68" rx="6" fill="var(--bg-elev)" stroke="var(--accent-dim)" stroke-width="1.5"></rect>
+  <text x="595" y="200" text-anchor="middle" font-size="12" fill="var(--fg)">6 · Illustration</text>
+  <text x="595" y="218" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">grok-imagine baseline ·</text>
+  <text x="595" y="232" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">gpt-image-2 for the cast</text>
+
+  <rect x="260" y="176" width="210" height="68" rx="6" fill="var(--bg-elev)" stroke="var(--accent-dim)" stroke-width="1.5"></rect>
+  <text x="365" y="200" text-anchor="middle" font-size="12" fill="var(--fg)">7 · Climax video</text>
+  <text x="365" y="218" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">grok-imagine-video,</text>
+  <text x="365" y="232" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">auto-plays inline</text>
+
+  <rect x="30" y="176" width="210" height="68" rx="6" fill="var(--bg-elev)" stroke="var(--accent-dim)" stroke-width="1.5"></rect>
+  <text x="135" y="200" text-anchor="middle" font-size="12" fill="var(--fg)">8 · Trigger warnings</text>
+  <text x="135" y="218" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">classifier tags sensitive</text>
+  <text x="135" y="232" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">categories for opt-outs</text>
+
+  <path d="M 720 210 L 702 210" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf2-a)"></path>
+  <path d="M 490 210 L 472 210" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf2-a)"></path>
+  <path d="M 260 210 L 242 210" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf2-a)"></path>
+
+  <rect x="30" y="268" width="13" height="13" fill="var(--bg-elev)" stroke="var(--accent-dim)" stroke-width="1.5"></rect>
+  <text x="51" y="279" font-size="10" fill="var(--fg-muted)">model call (model named in box)</text>
+  <rect x="290" y="268" width="13" height="13" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="311" y="279" font-size="10" fill="var(--fg-muted)">deterministic step</text>
+</svg>
+</div>
+
+Each beat is a relay of specialists, and the model is named per stage because the routing is the point. gpt-5.5 writes the narrative (it won the blind persona eval); the editorial agent reruns the prose against genre style guides and a banned-patterns list so it doesn't read like AI; a deterministic classifier picks the shot; the art director authors the image prompt on Grok, which doesn't soften the story's own action the way the narrative model did; identity locks and reference portraits keep the cast recognizable across chapters, with a vision-QA loop grading the results; and the climax beat gets a generated video in the same art style. A trigger-warning classifier then tags sensitive categories so readers can opt out before they hit them. Anthropic's Claude sits outside this live path on purpose — it serves as a cross-family judge in the eval harness that gates model swaps, so no model grades its own family. Utility calls (summaries, choice fallbacks, prompt extraction) run on a cheaper tier, which is what moved cost per story down 30%.
+
+### Payments: one live door, one dormant lane
+
+<div style="overflow-x: auto; margin: 2rem 0;">
+<svg viewBox="0 0 960 376" width="100%" style="min-width: 720px; display: block; font-family: var(--font-mono);" role="img" aria-labelledby="nf3-title nf3-desc">
+  <title id="nf3-title">Payments and entitlements</title>
+  <desc id="nf3-desc">Stripe Checkout on web feeds a server-verified webhook into one subscriptions and entitlements store in Postgres, which the subscription gate reads at story creation. A parallel Apple in-app-purchase lane is fully built and tested but dormant — the iOS app never shipped.</desc>
+  <defs>
+    <marker id="nf3-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)"></path>
+    </marker>
+    <marker id="nf3-m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--fg-muted)"></path>
     </marker>
   </defs>
 
-  {/* Reader */}
-  <rect x="390" y="20" width="200" height="56" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
-  <text x="490" y="44" text-anchor="middle" font-size="13" fill="var(--fg)">Reader (Browser)</text>
-  <text x="490" y="62" text-anchor="middle" font-size="11" fill="var(--fg-muted)">novelflame.ai, SvelteKit SSR</text>
+  <rect x="60" y="20" width="380" height="60" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="250" y="44" text-anchor="middle" font-size="13" fill="var(--fg)">Stripe (web)</text>
+  <text x="250" y="62" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">hosted Checkout + customer portal</text>
 
-  <path d="M 490 76 L 490 92 L 310 92 L 310 106" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf-arrow)"></path>
-  <path d="M 490 76 L 490 92 L 670 92 L 670 106" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf-arrow)"></path>
+  <rect x="520" y="20" width="380" height="60" rx="6" fill="none" stroke="var(--fg-muted)" stroke-width="1.5" stroke-dasharray="4 3"></rect>
+  <text x="710" y="44" text-anchor="middle" font-size="13" fill="var(--fg)">Apple IAP (iOS) — dormant</text>
+  <text x="710" y="62" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">full App Store setup, app never shipped</text>
 
-  {/* Auth + Subscription gate */}
-  <rect x="140" y="106" width="340" height="56" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
-  <text x="310" y="130" text-anchor="middle" font-size="13" fill="var(--fg)">Supabase Auth (SSR)</text>
-  <text x="310" y="148" text-anchor="middle" font-size="11" fill="var(--fg-muted)">session + age verification</text>
+  <path d="M 250 80 L 250 104" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf3-a)"></path>
+  <path d="M 710 80 L 710 104" fill="none" stroke="var(--fg-muted)" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#nf3-m)"></path>
 
-  <rect x="500" y="106" width="340" height="56" rx="6" fill="var(--bg-elev)" stroke="var(--accent-dim)" stroke-width="1.5"></rect>
-  <text x="670" y="130" text-anchor="middle" font-size="13" fill="var(--fg)">Subscription Gate</text>
-  <text x="670" y="148" text-anchor="middle" font-size="11" fill="var(--fg-muted)">free: 3 stories/30 days, or Plus</text>
+  <rect x="60" y="104" width="380" height="68" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="250" y="128" text-anchor="middle" font-size="12" fill="var(--fg)">Stripe webhook</text>
+  <text x="250" y="146" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">signature-verified: activation,</text>
+  <text x="250" y="160" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">renewals, cancellations</text>
 
-  <path d="M 310 162 L 310 178 L 490 178 L 490 192" fill="none" stroke="var(--accent)" stroke-width="1.5"></path>
-  <path d="M 670 162 L 670 178 L 490 178 L 490 192" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf-arrow)"></path>
+  <rect x="520" y="104" width="380" height="68" rx="6" fill="none" stroke="var(--fg-muted)" stroke-width="1.5" stroke-dasharray="4 3"></rect>
+  <text x="710" y="128" text-anchor="middle" font-size="12" fill="var(--fg)">App Store notifications V2</text>
+  <text x="710" y="146" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">signed transactions, server-side</text>
+  <text x="710" y="160" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">validation — built + tested</text>
 
-  {/* Input safety scan */}
-  <rect x="340" y="192" width="300" height="56" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
-  <text x="490" y="216" text-anchor="middle" font-size="13" fill="var(--fg)">Input Safety Scan</text>
-  <text x="490" y="234" text-anchor="middle" font-size="11" fill="var(--fg-muted)">moderation API + custom rules</text>
+  <path d="M 250 172 L 250 190 L 480 190 L 480 204" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf3-a)"></path>
+  <path d="M 710 172 L 710 190 L 484 190" fill="none" stroke="var(--fg-muted)" stroke-width="1.5" stroke-dasharray="4 3"></path>
 
-  <path d="M 490 248 L 490 264 L 160 264 L 160 278" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf-arrow)"></path>
-  <path d="M 490 248 L 490 278" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf-arrow)"></path>
-  <path d="M 490 248 L 490 264 L 790 264 L 790 278" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf-arrow)"></path>
+  <rect x="220" y="204" width="520" height="64" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="480" y="228" text-anchor="middle" font-size="13" fill="var(--fg)">subscriptions + user_entitlements</text>
+  <text x="480" y="246" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">Postgres via Drizzle — Plus status, video allowance, credits</text>
 
-  {/* Row: 3 generation providers */}
-  <rect x="20" y="278" width="280" height="60" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
-  <text x="160" y="304" text-anchor="middle" font-size="13" fill="var(--fg)">xAI Grok</text>
-  <text x="160" y="322" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">default story + video model</text>
+  <path d="M 480 268 L 480 284" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf3-a)"></path>
 
-  <rect x="350" y="278" width="280" height="60" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
-  <text x="490" y="304" text-anchor="middle" font-size="13" fill="var(--fg)">OpenAI</text>
-  <text x="490" y="322" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">utility tier + character images</text>
-
-  <rect x="650" y="278" width="280" height="60" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
-  <text x="790" y="304" text-anchor="middle" font-size="13" fill="var(--fg)">Anthropic Claude</text>
-  <text x="790" y="322" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">editorial quality pass</text>
-
-  <path d="M 160 338 L 160 354 L 490 354 L 490 368" fill="none" stroke="var(--accent)" stroke-width="1.5"></path>
-  <path d="M 490 338 L 490 368" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf-arrow)"></path>
-  <path d="M 790 338 L 790 354 L 490 354 L 490 368" fill="none" stroke="var(--accent)" stroke-width="1.5"></path>
-
-  {/* Output safety scan */}
-  <rect x="340" y="368" width="300" height="56" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
-  <text x="490" y="392" text-anchor="middle" font-size="13" fill="var(--fg)">Output Safety Scan</text>
-  <text x="490" y="410" text-anchor="middle" font-size="11" fill="var(--fg-muted)">same 2-layer filter, pre-display</text>
-
-  <path d="M 490 424 L 490 440 L 280 440 L 280 454" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf-arrow)"></path>
-  <path d="M 490 424 L 490 440 L 680 440 L 680 454" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf-arrow)"></path>
-
-  {/* R2 + SSE */}
-  <rect x="110" y="454" width="340" height="60" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
-  <text x="280" y="480" text-anchor="middle" font-size="13" fill="var(--fg)">Cloudflare R2</text>
-  <text x="280" y="498" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">images + completion video</text>
-
-  <rect x="510" y="454" width="340" height="60" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
-  <text x="680" y="480" text-anchor="middle" font-size="13" fill="var(--fg)">SSE Stream</text>
-  <text x="680" y="498" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">segment by segment to reader</text>
-
-  <path d="M 280 514 L 280 530 L 490 530 L 490 544" fill="none" stroke="var(--accent)" stroke-width="1.5"></path>
-  <path d="M 680 514 L 680 530 L 490 530 L 490 544" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf-arrow)"></path>
-
-  {/* Reader sees segment */}
-  <rect x="340" y="544" width="300" height="50" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
-  <text x="490" y="566" text-anchor="middle" font-size="13" fill="var(--fg)">Reader sees the segment</text>
-  <text x="490" y="583" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">picks a choice, loop repeats</text>
-
-  {/* Foundation: payments + infra/CI, dashed */}
-  <path d="M 490 594 L 490 610 L 335 610 L 335 630" fill="none" stroke="var(--fg-muted)" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#nf-arrow-muted)"></path>
-  <path d="M 490 594 L 490 610 L 725 610 L 725 630" fill="none" stroke="var(--fg-muted)" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#nf-arrow-muted)"></path>
-
-  <rect x="160" y="630" width="350" height="60" rx="6" fill="none" stroke="var(--fg-muted)" stroke-width="1.5" stroke-dasharray="4 3"></rect>
-  <text x="335" y="656" text-anchor="middle" font-size="13" fill="var(--fg)">Payments Gate</text>
-  <text x="335" y="674" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">Stripe (web) + Apple IAP (iOS)</text>
-
-  <rect x="550" y="630" width="350" height="60" rx="6" fill="none" stroke="var(--fg-muted)" stroke-width="1.5" stroke-dasharray="4 3"></rect>
-  <text x="725" y="650" text-anchor="middle" font-size="13" fill="var(--fg)">Infra &amp; CI/CD</text>
-  <text x="725" y="666" text-anchor="middle" font-size="10" fill="var(--fg-muted)">OpenTofu to Cloudflare + Railway</text>
-  <text x="725" y="680" text-anchor="middle" font-size="10" fill="var(--fg-muted)">GH Actions to Docker to GHCR</text>
+  <rect x="220" y="284" width="520" height="72" rx="6" fill="var(--bg-elev)" stroke="var(--accent-dim)" stroke-width="1.5"></rect>
+  <text x="480" y="308" text-anchor="middle" font-size="13" fill="var(--fg)">Subscription gate — enforced at story create</text>
+  <text x="480" y="326" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">free tier: 3 stories per 30 days → 402 paywall · Plus unlimited</text>
+  <text x="480" y="340" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">PostHog + Loops.so events on every transition</text>
 </svg>
 </div>
 
-The flow is 1 direction with 2 gates. A reader's request passes Supabase's SSR auth check and the subscription gate (free tier caps at 3 stories per 30 days; Plus is unlimited) before it ever reaches an LLM. The input safety scan runs the same 2-layer filter, the OpenAI Moderation API plus custom rules, that runs again on the way out, so a prompt has to clear the gate twice: once before generation, once before display. Generation itself is provider-routed rather than locked to 1 vendor: xAI's Grok is the default story and video model, OpenAI covers the utility tier and character-consistency images, and Anthropic's Claude runs a separate editorial quality pass over demo content. Media lands in Cloudflare R2 and streams back over SSE, segment by segment, so a reader sees text and images appear progressively rather than waiting on the full generation. Underneath all of it, a Payments Gate (Stripe on web, Apple IAP on iOS) controls access, and the whole app is provisioned through OpenTofu and deployed through a GitHub Actions to Docker to GHCR pipeline onto Railway.
+Payments deliberately live outside the story path. Stripe's hosted Checkout is the live door: a signature-verified webhook writes activations, renewals, and cancellations into one entitlements store in Postgres, and the only place billing touches the reading experience is the subscription gate at story creation — the same gate in the request-path diagram above. Every transition fires PostHog analytics and Loops.so lifecycle email events, so a cancellation or a paywall hit is a measurable funnel step, not a mystery. The Apple lane is real code, deliberately dormant: I took it all the way to the edge of launch — StoreKit products, server-side receipt validation, App Store Server Notifications, the full App Store application with screenshots and pricing tiers, Apple Pay tested on my own phone — and then made the web-first call in the mobile story below instead of shipping. The lane stays in the diagram because it stays in the codebase, waiting for a native app that earns its keep.
+
+### Ship to production: governance as code
+
+<div style="overflow-x: auto; margin: 2rem 0;">
+<svg viewBox="0 0 960 260" width="100%" style="min-width: 720px; display: block; font-family: var(--font-mono);" role="img" aria-labelledby="nf4-title nf4-desc">
+  <title id="nf4-title">CI/CD and infrastructure pipeline</title>
+  <desc id="nf4-desc">A pull request passes CodeRabbit review and GitHub Actions CI, gated by a required branch-protection check that is itself managed in OpenTofu. Merging to main applies infrastructure changes with tofu, deploys to Railway in Docker, and runs a staged deploy with Playwright end-to-end tests.</desc>
+  <defs>
+    <marker id="nf4-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)"></path>
+    </marker>
+  </defs>
+
+  <rect x="30" y="30" width="210" height="72" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="135" y="54" text-anchor="middle" font-size="12" fill="var(--fg)">Pull request</text>
+  <text x="135" y="72" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">solo dev + Claude Code,</text>
+  <text x="135" y="86" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">spec-driven (189 specs)</text>
+
+  <rect x="260" y="30" width="210" height="72" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="365" y="54" text-anchor="middle" font-size="12" fill="var(--fg)">CodeRabbit review</text>
+  <text x="365" y="72" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">assertive profile · gitleaks ·</text>
+  <text x="365" y="86" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">actionlint · slop detection</text>
+
+  <rect x="490" y="30" width="210" height="72" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="595" y="54" text-anchor="middle" font-size="12" fill="var(--fg)">CI — GitHub Actions</text>
+  <text x="595" y="72" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">lint · svelte-check · vitest ·</text>
+  <text x="595" y="86" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">build · tofu plan · eval gate</text>
+
+  <rect x="720" y="30" width="210" height="72" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="825" y="54" text-anchor="middle" font-size="12" fill="var(--fg)">Branch protection</text>
+  <text x="825" y="72" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">required CI Status check,</text>
+  <text x="825" y="86" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">admins included — set in IaC</text>
+
+  <path d="M 240 66 L 258 66" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf4-a)"></path>
+  <path d="M 470 66 L 488 66" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf4-a)"></path>
+  <path d="M 700 66 L 718 66" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf4-a)"></path>
+
+  <path d="M 825 102 L 825 122 L 165 122 L 165 158" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf4-a)"></path>
+  <path d="M 825 102 L 825 122 L 480 122 L 480 158" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf4-a)"></path>
+  <path d="M 825 102 L 825 122 L 795 122 L 795 158" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf4-a)"></path>
+
+  <rect x="20" y="158" width="290" height="84" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="165" y="182" text-anchor="middle" font-size="12" fill="var(--fg)">tofu apply — on main</text>
+  <text x="165" y="200" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">Cloudflare DNS · R2 · Turnstile · CSP ·</text>
+  <text x="165" y="214" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">Supabase · GitHub repo config</text>
+  <text x="165" y="228" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">(state encrypted in R2)</text>
+
+  <rect x="335" y="158" width="290" height="84" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="480" y="182" text-anchor="middle" font-size="12" fill="var(--fg)">railway up — production</text>
+  <text x="480" y="200" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">3-stage Docker build, non-root,</text>
+  <text x="480" y="214" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">+ production migrations</text>
+
+  <rect x="650" y="158" width="290" height="84" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="795" y="182" text-anchor="middle" font-size="12" fill="var(--fg)">staging + e2e</text>
+  <text x="795" y="200" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">staging deploy, seeded DB,</text>
+  <text x="795" y="214" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">Playwright smoke suite</text>
+</svg>
+</div>
+
+Everything between me and production is codified. A PR gets CodeRabbit's assertive review (with gitleaks, actionlint, and slop detection wired in) and a CI run that aggregates lint, type checks, tests, the build, an OpenTofu plan, and an eval-prompt regression gate into a single required "CI Status" check — and the branch protection requiring that check is itself OpenTofu-managed, enforced for admins too, so repo governance survives even a full repo recreation. Merging to main applies infrastructure changes (Cloudflare DNS, R2, Turnstile, CSP headers, Supabase, GitHub config, with state encrypted at rest in R2), deploys the 3-stage Docker image to Railway with production migrations, and refreshes staging behind a Playwright smoke suite. If I changed something in a dashboard by hand, the next plan would show it as drift.
+
+### Operations: two Discord servers, on purpose
+
+<div style="overflow-x: auto; margin: 2rem 0;">
+<svg viewBox="0 0 960 436" width="100%" style="min-width: 720px; display: block; font-family: var(--font-mono);" role="img" aria-labelledby="nf5-title nf5-desc">
+  <title id="nf5-title">Operations and observability</title>
+  <desc id="nf5-desc">Machine signals flow from the app through a Railway log drain into Axiom, where hourly GitHub Actions monitors and a synthetic probe raise alerts into a Discord alerts server and deduplicated GitHub incident issues. Human signals flow from the in-app feedback button through a triage webhook into a separate Discord feedback server.</desc>
+  <defs>
+    <marker id="nf5-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)"></path>
+    </marker>
+  </defs>
+
+  <text x="290" y="14" text-anchor="middle" font-size="11" fill="var(--fg-muted)">MACHINE SIGNALS</text>
+  <text x="790" y="14" text-anchor="middle" font-size="11" fill="var(--fg-muted)">HUMAN SIGNALS</text>
+
+  <rect x="30" y="24" width="520" height="64" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="290" y="48" text-anchor="middle" font-size="13" fill="var(--fg)">App on Railway</text>
+  <text x="290" y="66" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">structured JSON logs · named production events</text>
+
+  <rect x="640" y="24" width="300" height="64" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="790" y="48" text-anchor="middle" font-size="13" fill="var(--fg)">Reader feedback button</text>
+  <text x="790" y="66" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">in-app, every page</text>
+
+  <path d="M 290 88 L 290 128" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf5-a)"></path>
+  <path d="M 790 88 L 790 128" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf5-a)"></path>
+
+  <rect x="30" y="128" width="520" height="68" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="290" y="152" text-anchor="middle" font-size="13" fill="var(--fg)">Telemetry</text>
+  <text x="290" y="170" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">Railway log drain → Axiom · Sentry errors</text>
+  <text x="290" y="184" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">Langfuse trace per model call · PostHog funnel</text>
+
+  <rect x="640" y="128" width="300" height="68" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="790" y="152" text-anchor="middle" font-size="13" fill="var(--fg)">Feedback triage</text>
+  <text x="790" y="170" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">second Discord webhook,</text>
+  <text x="790" y="184" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">posted with user context</text>
+
+  <path d="M 290 196 L 290 236" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf5-a)"></path>
+  <path d="M 790 196 L 790 236" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf5-a)"></path>
+
+  <rect x="30" y="236" width="520" height="76" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="290" y="260" text-anchor="middle" font-size="13" fill="var(--fg)">Watchers — GitHub Actions cron</text>
+  <text x="290" y="278" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">hourly Axiom monitors: generation failures, silent anchor</text>
+  <text x="290" y="292" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">drops, 5xx, dead-man silence · synthetic probe every 2h</text>
+
+  <rect x="640" y="236" width="300" height="76" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="790" y="260" text-anchor="middle" font-size="13" fill="var(--fg)">Discord — feedback server</text>
+  <text x="790" y="278" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">separate server; every report</text>
+  <text x="790" y="292" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">lands as a message I read</text>
+
+  <path d="M 155 312 L 155 352" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf5-a)"></path>
+  <path d="M 425 312 L 425 352" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#nf5-a)"></path>
+
+  <rect x="30" y="352" width="250" height="72" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="155" y="376" text-anchor="middle" font-size="12" fill="var(--fg)">Discord — alerts server</text>
+  <text x="155" y="394" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">monitors, probe + CI failures</text>
+  <text x="155" y="408" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">land as embeds</text>
+
+  <rect x="300" y="352" width="250" height="72" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="425" y="376" text-anchor="middle" font-size="12" fill="var(--fg)">GitHub incident issues</text>
+  <text x="425" y="394" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">deduped, auto-assigned,</text>
+  <text x="425" y="408" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">with Axiom query links</text>
+</svg>
+</div>
+
+Two Discord servers, split by who's talking. Machine signals run down the left: the app writes structured JSON logs and named production events (silent identity-anchor drops, SSE timeouts, moderation blocks) through Railway's log drain into Axiom, and hourly GitHub Actions monitors query Axiom for generation failures, anchor-drop spikes, 5xx bursts, and dead-man staleness — a synthetic probe also creates a real story end to end every two hours. What they find lands as embeds in an alerts server and as deduplicated GitHub incident issues, auto-assigned to me with the Axiom query attached. Human signals run down the right: the in-app feedback button posts through a second webhook into a separate feedback server, so a reader complaint never drowns in machine noise. This telemetry isn't decoration — the 621 silent identity-lock drops in the character-consistency story below were found by exactly this pipeline. Langfuse traces every model call for cost forensics, PostHog holds the product funnel, Sentry catches errors, and Loops.so runs lifecycle email off the same event stream.
 
 ## What shipped
 

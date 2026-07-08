@@ -2,7 +2,7 @@
 title: "MTG Commander AI"
 slug: "mtgcommander"
 tagline: "A conversational agent that builds and tunes full 100-card Commander decks by calling a live MCP tool server over 33,000+ constantly-changing Magic cards, tournament results, and 10+ podcast and YouTube shows."
-description: "mtgcommander.ai is a live Magic: The Gathering Commander deck-building assistant. A conversational agent calls a Python MCP tool server to build full 100-card decks around a stated strategy, not just a commander's most popular cards: a constraint-based engine fills structural roles from templates, validates the mana base against the deck's color needs, and grounds every card it names against the real catalog so it can't recommend one that doesn't exist. It's free forever, funded by 1 Patreon patron at $20/month plus Ko-fi tips, and hands the actual purchase off to Mana Pool through an affiliate link."
+description: "mtgcommander.ai is a live Magic: The Gathering Commander deck-building assistant. A conversational agent calls a Python MCP tool server to build full 100-card decks around a stated strategy, not just a commander's most popular cards: a constraint-based engine fills structural roles from templates, validates the mana base against the deck's color needs, and grounds every card it names against the real catalog so it can't recommend one that doesn't exist. It's free forever, funded by Patreon and Ko-fi support, and hands the actual purchase off to Mana Pool through an affiliate link."
 liveUrl: "https://mtgcommander.ai"
 whyThisStack: "The backend and knowledge pipeline are Python: the raw material is 33K+ cards from Scryfall plus tens of thousands of podcast and YouTube transcript chunks, and Python's ecosystem for batch LLM calls, embeddings, and direct Postgres access fit that better than anything else considered. The web frontend is SvelteKit with the Vercel AI SDK, not Next.js. The project's own feature-branch folder is literally named 026-nextjs-frontend, a name left over from the initial plan before SvelteKit's smaller client bundle and native streaming primitives won the actual build. The 'Vercel' in the SDK's name is just a library brand, not the deploy target: both the SvelteKit frontend and the Python backend deploy to Railway via a Node adapter, not to Vercel. Supabase Postgres with pgvector holds the 33K-card embedding index and the structured-insight knowledge base in the same database that already handles auth and conversation storage, instead of standing up a separate vector store for 1 extra table. FastMCP exposes the deck-building tool surface (search_cards, find_similar_cards, build_commander_deck, and more) as the same interface any MCP client, not just this web app, could connect to directly."
 primaryStack:
@@ -36,9 +36,10 @@ numbers:
     - FastMCP
     - SvelteKit + Vercel AI SDK v6
     - Railway
+    - Axiom + Discord ops alerts
   auth: "Supabase Auth (Google, Discord, Twitch, email) + RLS per user"
-  payments: "Free forever; Patreon (1 patron at $20/mo) + Ko-fi tips + Mana Pool affiliate"
-  community: "Small Discord, seeded from a card-marketplace partner (Mana Pool); 4 Patreon-tier roles auto-synced on pledge/cancel"
+  payments: "Free forever; Patreon + Ko-fi + Mana Pool affiliate (1 paying patron at $20/mo)"
+  community: "Small Discord community, seeded from the Mana Pool partnership"
   specCount: 164
 skills:
   - name: "Thesis-Aware Deck Construction Engine"
@@ -64,7 +65,7 @@ skills:
     decision: "The conversational agent is a FastMCP tool server exposing the deck-building surface (search_cards, get_card, find_similar_cards, build_commander_deck, search_expert_knowledge, and more) as the same interface Claude Desktop or any other MCP client could connect to directly, not a bespoke API only the web chat can call. After launch, instead of guessing which tools the model actually needed, I audited real usage: 293 tool calls across 50 logged conversations."
     broke: "The audit showed a long tail of dead weight: 12 of the 30 exposed tools recorded 0 calls across all 50 conversations, while search_cards and get_card alone accounted for 160 of the 293 calls (55%). A flat, always-available tool list makes tool selection noisier for the model and gives no signal about which capability is actually doing anything."
     measured: "Built a frequency table (calls and percentage per tool) directly from the 50-conversation sample, then classified each tool as keep, merge, internalize, or needs-routing based on that data instead of intuition. search_expert_knowledge had 16 calls but got reclassified INTERNALIZE, since it turned out to be called by build_commander_deck and brainstorm_cards internally, never directly by the model in response to a user ask."
-    fixed: "0- and near-0-call tools got consolidated by their real verdict: explore_commanders (4 calls) merged into search_commanders_by_strategy, get_card_price (1 call) merged into price_card_list, and suggest_creator_decks (0 calls) got removed as a standalone tool since brainstorm_cards already baked it in. The remaining 0-call tools (rules lookups, post-build analysis) moved behind phase-based activeTools routing, so they only surface once their precondition step has actually run instead of sitting in front of the model on every single turn."
+    fixed: "0- and near-0-call tools got consolidated by their real verdict: explore_commanders (4 calls) merged into search_commanders_by_strategy, get_card_price (1 call) merged into price_card_list, and suggest_creator_decks (0 calls) got removed as a standalone tool since brainstorm_cards already baked it in. The remaining 0-call tools (rules lookups, post-build analysis) moved behind precondition-based routing — today a workflow state machine that detects intent and gates which tools are live each turn — so they only surface once their precondition step has actually run instead of sitting in front of the model on every single turn."
   - name: "RAG Knowledge Base and Insight Validation"
     domain: "RAG & Knowledge Systems"
     decision: "The expert knowledge base started as 32,807 raw podcast and YouTube transcript chunks retrieved by plain similarity search. I added a structured extraction layer, a Claude pipeline that discards noise (sponsor reads, intros, tangents) and pulls card-linked insights tagged with color identity, archetype, and a recency era, then validated every extracted insight against the card's real oracle text before it could be trusted."
@@ -83,122 +84,310 @@ skills:
     broke: "The chat orchestrator ran on 1 model by default, with no evidence base for whether a cheaper or faster provider would hold quality or what each provider's latency-versus-quality knob actually bought. Separately, a hard dependency on any single provider meant a deprecation or outage could take the assistant down."
     measured: "The bake-off runs the same prompts through each candidate and scores them with Claude as the judge, unbiased precisely because Claude is not a contestant in this comparison. It reports quality, speed, and cost per candidate on identical inputs and explores each provider's latency-quality knob, so the decision is evidence, not vibes."
     fixed: "The output is a scorecard, not an automatic production change, so acting on it is a deliberate env flip rather than a silent swap. Paired with a model-deprecation failover path, the assistant can move off a provider that gets deprecated or degrades without a rewrite."
+  - name: "Per-User Cost Caps for a Free Product"
+    domain: "Production Cost Governance"
+    decision: "A free product with real LLM costs behind every chat turn needs a way to be generous without being abusable. Every user's actual model spend is tracked in cents as it happens, and a flat monthly cost cap is enforced server-side before the model runs, for every user, after I retired the paid tiers. Free doesn't mean unmetered."
+    broke: "The cap fired in production twice for the wrong reasons. First, the monthly reset for the cost counter was never actually implemented, so the '$5/month' cap silently behaved as a $5 lifetime cap: any loyal user would eventually cross it and be permanently rate-limited, with no path back. Then, after a model swap, a mispriced entry in the cost table over-billed real usage, and my one paying Patreon supporter hit the cap even though his genuine usage shouldn't have come anywhere near it."
+    measured: "The fix was sized from the ledger, not a guess: the maximum observed genuine single-user monthly spend was about $1.72, so the cap moved to $20, roughly 11.6 times the observed max. A real power user should effectively never feel it, while a runaway loop or a deliberate abuser still hits a hard wall."
+    fixed: "The monthly reset now actually resets (UTC calendar rollover, with build counts and cost resetting independently and legacy rows handled), the pricing table got corrected after the bad swap, and the patron got a personal follow-up, an explanation of exactly what happened, and my assurance he'll never be capped again. Cost governance is a user-experience problem too: the person funding the product should never be the one throttled by its safety rail."
+  - name: "Test-Suite Economics: Recorded LLM Calls in CI"
+    domain: "Testing & CI Reliability"
+    decision: "AI-assisted development writes tests faster than any team I've worked on, and the suite and CI wall-clock balloon accordingly. I've done several rounds of test-diet work across this project and NovelFlame, and the structural fix here was record/replay: the deck-quality and MCP integration tests run against recorded HTTP cassettes of real LLM and data-API traffic, so CI replays captured responses with dummy keys instead of paying for live calls."
+    broke: "Early on, the integration and smoke tests hit live LLM and data APIs on every change: real dollars and minutes of wall-clock per run, multiplied by how fast the spec-driven loop pushes changes, and flaky on top because live model output is nondeterministic. The cost of validating a change was quietly taxing every single iteration."
+    measured: "CI now defaults to replay: deterministic, free, and fast, against 11 cassettes of captured traffic. Matching stays stable because a custom matcher pins the recorded OpenAI tool-forcing calls, so a prompt refactor doesn't silently invalidate the cassette library."
+    fixed: "Live API coverage became a decision instead of a tax: adding a run-live label to a PR (or a manual dispatch) flips the recorder into rewrite mode and re-records the cassettes against the real APIs. Day-to-day pushes validate against reality's last known recording; spending money on the real thing happens when a change actually warrants it."
 ---
 
 
 
 ## Why this exists
 
-A friend of mine, Wes, was building a homebrew Magic: The Gathering cube by hand. He had 10 defined archetypes and a card list, but no easy way to check whether his black-green reanimator support was actually deep enough or just felt deep. Commander deckbuilding has the same problem at a bigger scale. EDHREC gives you popularity data, not the reasoning a good player would give you for why a specific card fits your specific 99. mtgcommander.ai is a conversational assistant that reads real card data (33K+ Scryfall cards) and real expert reasoning (transcript chunks from 10+ podcast and YouTube shows), builds full Commander decks against a stated budget and bracket, and hands the actual purchase off to Mana Pool through an affiliate link. It runs as a live, free product today, not a prototype. I tried a paid subscription tier first, couldn't find a version of it worth charging for, and pivoted to Patreon after a couple of months, so it's funded now by 1 Patreon patron at $20/month plus Ko-fi tips instead of a paywall.
+A friend of mine, Wes, was building a homebrew Magic: The Gathering cube by hand. He had 10 defined archetypes and a card list, but no easy way to check whether his black-green reanimator support was actually deep enough or just felt deep. Commander deckbuilding has the same problem at a bigger scale. EDHREC gives you popularity data, not the reasoning a good player would give you for why a specific card fits your specific 99. mtgcommander.ai is a conversational assistant that reads real card data (33K+ Scryfall cards) and real expert reasoning (transcript chunks from 10+ podcast and YouTube shows), builds full Commander decks against a stated budget and bracket, and hands the actual purchase off to Mana Pool through an affiliate link. It runs as a live, free product today, not a prototype. I tried a paid subscription tier first, couldn't find a version of it worth charging for, and pivoted to Patreon after a couple of months, so it's funded now by Patreon and Ko-fi support instead of a paywall.
 
 ## Architecture
 
-<div style="overflow-x: auto; margin: 2rem 0;">
-<svg viewBox="0 0 960 640" width="100%" style="min-width: 720px; display: block; font-family: var(--font-mono);" role="img" aria-labelledby="arch-title arch-desc">
-  <title id="arch-title">mtgcommander.ai pipeline</title>
-  <desc id="arch-desc">Card data, podcast transcripts, and deck imports feed a Python extraction and embedding pipeline into a shared Postgres and pgvector knowledge base. A FastMCP tool server exposes that knowledge base as discrete tools that a SvelteKit chat agent orchestrates through usage-informed routing. The product is free forever, with optional Patreon and Ko-fi support, and the actual card purchase completes on Mana Pool through an affiliate link, outside this app.</desc>
+One box-wall diagram can't hold this system honestly, so here it is as the four flows it actually runs, plus the operations layer that keeps a one-person product alive: a chat turn, the inside of a deck build, the handoff from deck to real cart, the knowledge pipeline behind it all, and how the whole thing watches itself in production.
 
+### The chat agent loop
+
+<div style="overflow-x: auto; margin: 2rem 0;">
+<svg viewBox="0 0 960 418" width="100%" style="min-width: 720px; display: block; font-family: var(--font-mono);" role="img" aria-labelledby="mtg1-title mtg1-desc">
+  <title id="mtg1-title">Chat agent loop</title>
+  <desc id="mtg1-desc">A reader's chat turn enters a SvelteKit server running the Vercel AI SDK agent loop on Claude Sonnet. A workflow state machine detects intent and gates which tools are live each turn. The agent calls a Python FastMCP tool server backed by Supabase Postgres with pgvector, and the answer streams back over SSE with every card name grounded against the real catalog.</desc>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <marker id="mtg1-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)"></path>
     </marker>
-    <marker id="arrow-muted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+  </defs>
+
+  <rect x="330" y="20" width="300" height="54" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="480" y="44" text-anchor="middle" font-size="13" fill="var(--fg)">Reader (browser)</text>
+  <text x="480" y="62" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">chat at mtgcommander.ai</text>
+
+  <path d="M 430 74 L 430 114" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#mtg1-a)"></path>
+  <text x="418" y="98" text-anchor="end" font-size="10" fill="var(--fg-muted)">user turn</text>
+  <path d="M 530 118 L 530 78" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#mtg1-a)"></path>
+  <text x="542" y="98" font-size="10" fill="var(--fg-muted)">SSE stream · every card name grounded</text>
+
+  <rect x="180" y="118" width="440" height="64" rx="6" fill="var(--bg-elev)" stroke="var(--accent-dim)" stroke-width="1.5"></rect>
+  <text x="400" y="144" text-anchor="middle" font-size="13" fill="var(--fg)">SvelteKit · Vercel AI SDK agent loop</text>
+  <text x="400" y="162" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">Claude Sonnet — failover + bake-off override are env flips</text>
+
+  <rect x="660" y="118" width="280" height="64" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="800" y="144" text-anchor="middle" font-size="13" fill="var(--fg)">Workflow state machine</text>
+  <text x="800" y="162" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">detects intent, gates live tools</text>
+  <path d="M 626 150 L 654 150" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-start="url(#mtg1-a)" marker-end="url(#mtg1-a)"></path>
+
+  <path d="M 340 182 L 340 226" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#mtg1-a)"></path>
+  <text x="328" y="208" text-anchor="end" font-size="10" fill="var(--fg-muted)">tool calls</text>
+  <path d="M 460 226 L 460 186" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#mtg1-a)"></path>
+  <text x="472" y="208" font-size="10" fill="var(--fg-muted)">results</text>
+
+  <rect x="180" y="226" width="440" height="64" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="400" y="252" text-anchor="middle" font-size="13" fill="var(--fg)">FastMCP tool server (Python)</text>
+  <text x="400" y="270" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">search_cards · get_card · build_commander_deck · remember …</text>
+
+  <path d="M 400 290 L 400 334" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#mtg1-a)"></path>
+
+  <rect x="180" y="334" width="440" height="64" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="400" y="360" text-anchor="middle" font-size="13" fill="var(--fg)">Supabase Postgres + pgvector</text>
+  <text x="400" y="378" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">33K+ cards · 36,554 validated insights · decks · chats (RLS)</text>
+</svg>
+</div>
+
+A chat turn is an agent loop: the SvelteKit server runs the Vercel AI SDK with Claude Sonnet as the chat model (a failover model and a per-request bake-off override are each a single env flip), and the model works the FastMCP tool surface — the same tools any MCP client could call directly. Which tools the model even sees is decided per turn by a workflow state machine informed by the 293-call usage audit: paste in a 30-card list and it detects a net-deck import and swaps in the orient/swap/buylist tools; ask a fresh question and those stay out of the model's way. Every card name in the streamed answer is resolved against the real catalog before the reader sees it — the fabrication gate from the skill stories below.
+
+### Inside a deck build
+
+<div style="overflow-x: auto; margin: 2rem 0;">
+<svg viewBox="0 0 960 316" width="100%" style="min-width: 720px; display: block; font-family: var(--font-mono);" role="img" aria-labelledby="mtg2-title mtg2-desc">
+  <title id="mtg2-title">Deck build engine stages</title>
+  <desc id="mtg2-desc">build_commander_deck runs eight stages in order: thesis and strategy reasoning, candidate pool assembly, structural packages from templates, LLM thesis and flex picks, conformance enforcement, mana base with per-color pip audit, the fabrication gate, and a final deck with a per-stage build report. LLM reasoning stages are marked; the rest are deterministic templates and validators.</desc>
+  <defs>
+    <marker id="mtg2-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)"></path>
+    </marker>
+  </defs>
+
+  <rect x="30" y="40" width="210" height="68" rx="6" fill="var(--bg-elev)" stroke="var(--accent-dim)" stroke-width="1.5"></rect>
+  <text x="135" y="64" text-anchor="middle" font-size="12" fill="var(--fg)">1 · Thesis &amp; strategy</text>
+  <text x="135" y="82" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">reads the stated plan +</text>
+  <text x="135" y="96" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">must-include cards</text>
+
+  <rect x="260" y="40" width="210" height="68" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="365" y="64" text-anchor="middle" font-size="12" fill="var(--fg)">2 · Candidate pool</text>
+  <text x="365" y="82" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">EDHREC + tournament data</text>
+  <text x="365" y="96" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">+ expert RAG insights</text>
+
+  <rect x="490" y="40" width="210" height="68" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="595" y="64" text-anchor="middle" font-size="12" fill="var(--fg)">3 · Structural packages</text>
+  <text x="595" y="82" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">ramp · removal · wipes · draw</text>
+  <text x="595" y="96" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">from YAML templates</text>
+
+  <rect x="720" y="40" width="210" height="68" rx="6" fill="var(--bg-elev)" stroke="var(--accent-dim)" stroke-width="1.5"></rect>
+  <text x="825" y="64" text-anchor="middle" font-size="12" fill="var(--fg)">4 · Thesis &amp; flex picks</text>
+  <text x="825" y="82" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">LLM picks the specific cards</text>
+  <text x="825" y="96" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">that serve the plan</text>
+
+  <path d="M 240 74 L 258 74" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#mtg2-a)"></path>
+  <path d="M 470 74 L 488 74" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#mtg2-a)"></path>
+  <path d="M 700 74 L 718 74" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#mtg2-a)"></path>
+  <path d="M 825 108 L 825 176" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#mtg2-a)"></path>
+
+  <rect x="720" y="176" width="210" height="68" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="825" y="200" text-anchor="middle" font-size="12" fill="var(--fg)">5 · Conformance check</text>
+  <text x="825" y="218" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">declared minimums enforced</text>
+  <text x="825" y="232" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">via explicit swap plan</text>
+
+  <rect x="490" y="176" width="210" height="68" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="595" y="200" text-anchor="middle" font-size="12" fill="var(--fg)">6 · Mana base + pip audit</text>
+  <text x="595" y="218" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">pips needed vs. sources per</text>
+  <text x="595" y="232" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">color; lands swapped to fit</text>
+
+  <rect x="260" y="176" width="210" height="68" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="365" y="200" text-anchor="middle" font-size="12" fill="var(--fg)">7 · Fabrication gate</text>
+  <text x="365" y="218" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">every name must resolve</text>
+  <text x="365" y="232" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">in the real catalog</text>
+
+  <rect x="30" y="176" width="210" height="68" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="135" y="200" text-anchor="middle" font-size="12" fill="var(--fg)">8 · Deck + build report</text>
+  <text x="135" y="218" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">per-stage status,</text>
+  <text x="135" y="232" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">fail-visible</text>
+
+  <path d="M 720 210 L 702 210" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#mtg2-a)"></path>
+  <path d="M 490 210 L 472 210" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#mtg2-a)"></path>
+  <path d="M 260 210 L 242 210" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#mtg2-a)"></path>
+
+  <rect x="30" y="268" width="13" height="13" fill="var(--bg-elev)" stroke="var(--accent-dim)" stroke-width="1.5"></rect>
+  <text x="51" y="279" font-size="10" fill="var(--fg-muted)">LLM reasoning stage</text>
+  <rect x="210" y="268" width="13" height="13" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="231" y="279" font-size="10" fill="var(--fg-muted)">deterministic template / validator</text>
+</svg>
+</div>
+
+`build_commander_deck` is a staged engine, not one model call. The LLM owns the two genuinely creative stages — reading the thesis and choosing the specific cards that serve it — and deterministic code owns the solved problems: structural role counts from YAML package templates, declared-minimum conformance enforced through an explicit swap plan, a mana base audited pip-by-pip against the colors the deck actually needs, and a fabrication gate that refuses any card name that doesn't resolve in the catalog. Every stage reports its own status into the build metadata, so a degraded stage is visible in the result instead of silently swallowed.
+
+### From deck to cart: the Mana Pool handoff
+
+<div style="overflow-x: auto; margin: 2rem 0;">
+<svg viewBox="0 0 960 130" width="100%" style="min-width: 720px; display: block; font-family: var(--font-mono);" role="img" aria-labelledby="mtg3-title mtg3-desc">
+  <title id="mtg3-title">Mana Pool cart handoff</title>
+  <desc id="mtg3-desc">A built deck of 100 canonical card names goes through live price and availability optimization, then cart validation for legality, color identity, and quantities, producing a buy URL with an affiliate ref. The user clicks Buy and payment completes off-platform on Mana Pool.</desc>
+  <defs>
+    <marker id="mtg3-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)"></path>
+    </marker>
+    <marker id="mtg3-m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--fg-muted)"></path>
     </marker>
   </defs>
 
-  {/* Row 1: sources */}
-  <g>
-    <rect x="20" y="20" width="290" height="58" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
-    <text x="165" y="44" text-anchor="middle" font-size="13" fill="var(--fg)">Scryfall Bulk Data</text>
-    <text x="165" y="62" text-anchor="middle" font-size="11" fill="var(--fg-muted)">33K+ cards, oracle text + legality</text>
+  <rect x="20" y="30" width="200" height="76" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="120" y="54" text-anchor="middle" font-size="12" fill="var(--fg)">Built deck</text>
+  <text x="120" y="72" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">100 cards,</text>
+  <text x="120" y="86" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">canonical names</text>
 
-    <rect x="335" y="20" width="290" height="58" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
-    <text x="480" y="44" text-anchor="middle" font-size="13" fill="var(--fg)">Podcast + YouTube Transcripts</text>
-    <text x="480" y="62" text-anchor="middle" font-size="11" fill="var(--fg-muted)">32,807 raw chunks, 10+ shows</text>
+  <rect x="250" y="30" width="200" height="76" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="350" y="54" text-anchor="middle" font-size="12" fill="var(--fg)">Price &amp; availability</text>
+  <text x="350" y="72" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">live optimizer; drops unavailable</text>
+  <text x="350" y="86" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">printings and retries</text>
 
-    <rect x="650" y="20" width="290" height="58" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
-    <text x="795" y="44" text-anchor="middle" font-size="13" fill="var(--fg)">Moxfield / EDHREC / Tournament</text>
-    <text x="795" y="62" text-anchor="middle" font-size="11" fill="var(--fg-muted)">deck, meta &amp; winrate imports</text>
-  </g>
+  <rect x="480" y="30" width="200" height="76" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="580" y="54" text-anchor="middle" font-size="12" fill="var(--fg)">Cart validation</text>
+  <text x="580" y="72" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">legality · color identity ·</text>
+  <text x="580" y="86" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">quantities → buy_url + ref</text>
 
-  {/* Arrows converging to extraction pipeline */}
-  <path d="M 165 78 L 165 100 L 480 100 L 480 122" fill="none" stroke="var(--accent)" stroke-width="1.5"></path>
-  <path d="M 480 78 L 480 122" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
-  <path d="M 795 78 L 795 100 L 480 100 L 480 122" fill="none" stroke="var(--accent)" stroke-width="1.5"></path>
+  <rect x="760" y="30" width="180" height="76" rx="6" fill="none" stroke="var(--fg-muted)" stroke-width="1.5" stroke-dasharray="4 3"></rect>
+  <text x="850" y="54" text-anchor="middle" font-size="12" fill="var(--fg)">Mana Pool checkout</text>
+  <text x="850" y="72" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">payment completes</text>
+  <text x="850" y="86" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">off-platform</text>
 
-  {/* Extraction + embedding pipeline */}
-  <rect x="280" y="122" width="400" height="56" rx="6" fill="var(--bg-elev)" stroke="var(--accent-dim)" stroke-width="1.5"></rect>
-  <text x="480" y="146" text-anchor="middle" font-size="13" fill="var(--fg)">Python Extraction + Embedding Pipeline</text>
-  <text x="480" y="164" text-anchor="middle" font-size="11" fill="var(--fg-muted)">chunk, embed, extract, validate against oracle text</text>
-
-  <path d="M 480 178 L 480 222" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
-
-  {/* Knowledge base */}
-  <rect x="230" y="222" width="500" height="56" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
-  <text x="480" y="246" text-anchor="middle" font-size="13" fill="var(--fg)">Supabase Postgres + pgvector</text>
-  <text x="480" y="264" text-anchor="middle" font-size="11" fill="var(--fg-muted)">cards, structured_insights, decks, conversations (RLS per user)</text>
-
-  {/* Arrows fanning out to 5 MCP tools */}
-  <path d="M 480 278 L 480 297 L 102 297 L 102 316" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
-  <path d="M 480 278 L 480 297 L 291 297 L 291 316" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
-  <path d="M 480 278 L 480 316" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
-  <path d="M 480 278 L 480 297 L 669 297 L 669 316" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
-  <path d="M 480 278 L 480 297 L 858 297 L 858 316" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
-
-  {/* Row: MCP tools */}
-  <g>
-    <rect x="15" y="316" width="174" height="60" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
-    <text x="102" y="342" text-anchor="middle" font-size="12" fill="var(--fg)">search_cards</text>
-    <text x="102" y="360" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">+ get_card: 160/293 calls (55%)</text>
-
-    <rect x="204" y="316" width="174" height="60" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
-    <text x="291" y="342" text-anchor="middle" font-size="12" fill="var(--fg)">find_similar_cards</text>
-    <text x="291" y="360" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">pgvector similarity</text>
-
-    <rect x="393" y="316" width="174" height="60" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
-    <text x="480" y="342" text-anchor="middle" font-size="12" fill="var(--fg)">get_card</text>
-    <text x="480" y="360" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">+ suggest_cards: archetype gaps</text>
-
-    <rect x="582" y="316" width="174" height="60" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
-    <text x="669" y="342" text-anchor="middle" font-size="12" fill="var(--fg)">build_commander_deck</text>
-    <text x="669" y="360" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">thesis + structural packages + mana base</text>
-
-    <rect x="771" y="316" width="174" height="60" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
-    <text x="858" y="342" text-anchor="middle" font-size="12" fill="var(--fg)">search_expert_knowledge</text>
-    <text x="858" y="360" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">internalized (RAG insights)</text>
-  </g>
-
-  {/* Arrows converging to agent loop */}
-  <path d="M 102 376 L 102 388 L 480 388 L 480 398" fill="none" stroke="var(--accent)" stroke-width="1.5"></path>
-  <path d="M 291 376 L 291 388 L 480 388 L 480 398" fill="none" stroke="var(--accent)" stroke-width="1.5"></path>
-  <path d="M 480 376 L 480 398" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
-  <path d="M 669 376 L 669 388 L 480 388 L 480 398" fill="none" stroke="var(--accent)" stroke-width="1.5"></path>
-  <path d="M 858 376 L 858 388 L 480 388 L 480 398" fill="none" stroke="var(--accent)" stroke-width="1.5"></path>
-
-  {/* Agent loop */}
-  <rect x="230" y="398" width="500" height="56" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
-  <text x="480" y="422" text-anchor="middle" font-size="13" fill="var(--fg)">SvelteKit + Vercel AI SDK v6 Agent Loop</text>
-  <text x="480" y="440" text-anchor="middle" font-size="11" fill="var(--fg-muted)">phase-based activeTools routing (293-call usage audit)</text>
-
-  <path d="M 480 454 L 480 476" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow)"></path>
-
-  {/* Support layer */}
-  <rect x="280" y="476" width="400" height="56" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
-  <text x="480" y="500" text-anchor="middle" font-size="13" fill="var(--fg)">Optional Support Layer</text>
-  <text x="480" y="518" text-anchor="middle" font-size="11" fill="var(--fg-muted)">Free forever; Patreon pledges + Ko-fi tips fund it</text>
-
-  {/* Human/marketplace boundary */}
-  <path d="M 480 532 L 480 556" fill="none" stroke="var(--fg-muted)" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrow-muted)"></path>
-  <text x="500" y="550" font-size="10.5" fill="var(--fg-muted)">user clicks Buy</text>
-
-  <rect x="250" y="556" width="460" height="56" rx="6" fill="none" stroke="var(--fg-muted)" stroke-width="1.5" stroke-dasharray="4 3"></rect>
-  <text x="480" y="580" text-anchor="middle" font-size="13" fill="var(--fg)">Completed on Mana Pool</text>
-  <text x="480" y="598" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">pre-built cart handoff, real payment completes off-platform</text>
+  <path d="M 220 68 L 248 68" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#mtg3-a)"></path>
+  <path d="M 450 68 L 478 68" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#mtg3-a)"></path>
+  <path d="M 680 68 L 758 68" fill="none" stroke="var(--fg-muted)" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#mtg3-m)"></path>
+  <text x="719" y="20" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">user clicks Buy</text>
 </svg>
 </div>
 
-Card data, podcast and YouTube transcripts, and deck imports feed a Python pipeline that chunks, embeds, and extracts structured insights, validating every mechanic claim against the card's own oracle text before anything is stored. All of it lives in 1 Supabase Postgres database with pgvector, alongside auth and conversation history, not a separate vector store. A FastMCP tool server exposes that knowledge base as discrete, individually callable tools (the same tools a raw MCP client like Claude Desktop could call directly), and a SvelteKit chat frontend running the Vercel AI SDK orchestrates those tools through phase-based routing informed by a real usage audit. The product is free forever, funded by optional Patreon support (1 patron at $20/month) and Ko-fi tips instead of a paywall, and when a user is ready to buy the deck, the purchase itself completes on Mana Pool through an affiliate link, not inside this app.
+When a reader clicks Buy, the deck goes to Mana Pool's cart optimizer for live pricing and availability — if a printing is out of stock, the request retries with it dropped instead of failing the whole cart — then through deck validation (legality, color identity, quantities) and comes back as a pre-filled cart URL carrying my affiliate ref. Payment completes on Mana Pool; there is no payment surface in this app at all. The engine can also build against a constrained pool — a single seller's inventory or the user's own collection — so the deck it hands over is actually fulfillable. That affiliate cut, plus Patreon and Ko-fi support, is the entire business model: the product is free forever, and the support links live on a support page, not in this pipeline.
+
+### The knowledge pipeline (offline)
+
+<div style="overflow-x: auto; margin: 2rem 0;">
+<svg viewBox="0 0 960 310" width="100%" style="min-width: 720px; display: block; font-family: var(--font-mono);" role="img" aria-labelledby="mtg4-title mtg4-desc">
+  <title id="mtg4-title">Knowledge pipeline</title>
+  <desc id="mtg4-desc">Scryfall bulk card data, podcast and YouTube transcripts, and deck and meta imports feed a Claude extraction and oracle-text validation stage, which writes validated insights and embeddings into the same Supabase Postgres and pgvector database the app runs on.</desc>
+  <defs>
+    <marker id="mtg4-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)"></path>
+    </marker>
+  </defs>
+
+  <rect x="20" y="20" width="290" height="68" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="165" y="44" text-anchor="middle" font-size="12" fill="var(--fg)">Scryfall bulk data</text>
+  <text x="165" y="62" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">33K+ cards — nightly cron,</text>
+  <text x="165" y="76" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">gaps auto-healed by the ops audit</text>
+
+  <rect x="335" y="20" width="290" height="68" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="480" y="44" text-anchor="middle" font-size="12" fill="var(--fg)">Podcast + YouTube transcripts</text>
+  <text x="480" y="62" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">Whisper transcription,</text>
+  <text x="480" y="76" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">10+ shows, batch runs</text>
+
+  <rect x="650" y="20" width="290" height="68" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="795" y="44" text-anchor="middle" font-size="12" fill="var(--fg)">Deck &amp; meta imports</text>
+  <text x="795" y="62" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">Moxfield · EDHREC · tournament</text>
+  <text x="795" y="76" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">results — daily/weekly crons</text>
+
+  <path d="M 165 88 L 165 106 L 480 106 L 480 122" fill="none" stroke="var(--accent)" stroke-width="1.5"></path>
+  <path d="M 480 88 L 480 122" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#mtg4-a)"></path>
+  <path d="M 795 88 L 795 106 L 480 106 L 480 122" fill="none" stroke="var(--accent)" stroke-width="1.5"></path>
+
+  <rect x="280" y="122" width="400" height="64" rx="6" fill="var(--bg-elev)" stroke="var(--accent-dim)" stroke-width="1.5"></rect>
+  <text x="480" y="148" text-anchor="middle" font-size="13" fill="var(--fg)">Claude extraction + oracle-text validation</text>
+  <text x="480" y="166" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">Batch API; every mechanic claim checked against real card text</text>
+
+  <path d="M 480 186 L 480 230" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#mtg4-a)"></path>
+
+  <rect x="280" y="230" width="400" height="60" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="480" y="256" text-anchor="middle" font-size="13" fill="var(--fg)">Supabase Postgres + pgvector</text>
+  <text x="480" y="274" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">36,554 validated insights · 768-dim embeddings</text>
+</svg>
+</div>
+
+Everything the agent knows arrives through a batch pipeline, deliberately not real time: validating a new insight against a card's oracle text before a user can see it matters more than shipping it a few minutes faster. Scryfall card data refreshes on a nightly cron and the ops audit auto-heals any gaps it finds; transcripts go through Whisper, then a Claude extraction pass that discards noise and pulls card-linked insights, then the oracle-text validator that deleted 5,236 hallucinated claims from the backfill and now gates every new insight the same way. It all lands in the one Supabase Postgres database — cards, insights, embeddings, decks, and conversations together, not a separate vector store.
+
+### Production operations
+
+<div style="overflow-x: auto; margin: 2rem 0;">
+<svg viewBox="0 0 960 488" width="100%" style="min-width: 720px; display: block; font-family: var(--font-mono);" role="img" aria-labelledby="mtg5-title mtg5-desc">
+  <title id="mtg5-title">Production operations</title>
+  <desc id="mtg5-desc">Every PR passes CodeRabbit review and CI before deploying to two Railway services, which ship telemetry to Axiom, Sentry, PostHog, and Langfuse. Scheduled GitHub Actions watchers — a nightly ops audit, an hourly synthetic probe, and recurring quality evals — report into a Discord alerts channel, auto-filed GitHub issues, and Healthchecks.io dead-man heartbeats.</desc>
+  <defs>
+    <marker id="mtg5-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)"></path>
+    </marker>
+  </defs>
+
+  <rect x="20" y="20" width="920" height="56" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="480" y="44" text-anchor="middle" font-size="13" fill="var(--fg)">Ship path</text>
+  <text x="480" y="62" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">every PR: CodeRabbit assertive review + CI → merge → auto-deploy to Railway</text>
+
+  <path d="M 235 76 L 235 108" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#mtg5-a)"></path>
+
+  <rect x="20" y="108" width="430" height="72" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="235" y="132" text-anchor="middle" font-size="13" fill="var(--fg)">Railway — production runtime</text>
+  <text x="235" y="150" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">FastMCP API (Python) · SvelteKit web</text>
+  <text x="235" y="164" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">+ a full staging twin</text>
+
+  <rect x="510" y="108" width="430" height="72" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="725" y="132" text-anchor="middle" font-size="13" fill="var(--fg)">Telemetry</text>
+  <text x="725" y="150" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">Axiom logs (dead-man heartbeat) · Sentry errors</text>
+  <text x="725" y="164" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">PostHog product analytics · Langfuse eval traces</text>
+
+  <path d="M 450 144 L 508 144" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#mtg5-a)"></path>
+  <path d="M 235 180 L 235 224" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#mtg5-a)"></path>
+  <path d="M 725 180 L 725 224" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#mtg5-a)"></path>
+
+  <rect x="20" y="224" width="920" height="128" rx="6" fill="none" stroke="var(--border)"></rect>
+  <text x="480" y="246" text-anchor="middle" font-size="11" fill="var(--fg-muted)">SCHEDULED WATCHERS — GITHUB ACTIONS CRON</text>
+
+  <rect x="36" y="258" width="286" height="80" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="179" y="282" text-anchor="middle" font-size="12" fill="var(--fg)">Nightly ops audit</text>
+  <text x="179" y="300" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">catalog auto-heal · AI audit of every</text>
+  <text x="179" y="314" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">conversation · Axiom error scan</text>
+
+  <rect x="337" y="258" width="286" height="80" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="480" y="282" text-anchor="middle" font-size="12" fill="var(--fg)">Synthetic probe</text>
+  <text x="480" y="300" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">hourly scripted conversation,</text>
+  <text x="480" y="314" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">end to end</text>
+
+  <rect x="638" y="258" width="286" height="80" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="781" y="282" text-anchor="middle" font-size="12" fill="var(--fg)">Quality evals</text>
+  <text x="781" y="300" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">nightly deck-quality run ·</text>
+  <text x="781" y="314" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">LLM-judged scorecard 3×/week</text>
+
+  <path d="M 165 352 L 165 396" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#mtg5-a)"></path>
+  <path d="M 480 352 L 480 396" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#mtg5-a)"></path>
+  <path d="M 795 352 L 795 396" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#mtg5-a)"></path>
+
+  <rect x="20" y="396" width="290" height="72" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="165" y="420" text-anchor="middle" font-size="12" fill="var(--fg)">Discord #alerts</text>
+  <text x="165" y="438" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">color-coded failure embeds —</text>
+  <text x="165" y="452" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">every job reports here</text>
+
+  <rect x="335" y="396" width="290" height="72" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="480" y="420" text-anchor="middle" font-size="12" fill="var(--fg)">GitHub issues</text>
+  <text x="480" y="438" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">audit auto-files + dedupes,</text>
+  <text x="480" y="452" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">labeled ops-audit</text>
+
+  <rect x="650" y="396" width="290" height="72" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
+  <text x="795" y="420" text-anchor="middle" font-size="12" fill="var(--fg)">Healthchecks.io</text>
+  <text x="795" y="438" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">dead-man heartbeat per cron —</text>
+  <text x="795" y="452" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">silence itself alerts</text>
+</svg>
+</div>
+
+This is the part that doesn't demo well but matters most: the product runs itself like a team several times its size. Every PR passes CodeRabbit's assertive review profile and CI before Railway deploys the two services, and production ships structured logs to Axiom with a dead-man heartbeat so even a dead logger gets noticed. Then the watchers take over. A nightly ops audit checks catalog completeness against Scryfall and auto-heals gaps, has a small model read the previous day's conversations and file deduplicated GitHub issues for real failures (that audit is where the fabrication-gate work came from), and scans Axiom for error clusters. An hourly synthetic probe runs a scripted conversation end to end, and deck-quality evals run nightly with an LLM-judged scorecard three times a week. Everything reports to a Discord alerts channel I actually read, every cron pings Healthchecks.io, and the issues the audit files feed straight back into the spec queue.
 
 ## What shipped
 
