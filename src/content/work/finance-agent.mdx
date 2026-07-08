@@ -80,7 +80,7 @@ Four views: the always-on loop that decides when to think, the five-persona deba
   </defs>
 
   <rect x="280" y="20" width="400" height="68" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
-  <text x="480" y="44" text-anchor="middle" font-size="13" fill="var(--fg)">systemd — Type=notify</text>
+  <text x="480" y="44" text-anchor="middle" font-size="13" fill="var(--fg)">systemd · Type=notify</text>
   <text x="480" y="62" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">60s watchdog · LoadCredential secrets ·</text>
   <text x="480" y="76" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">memory caps · restart on failure</text>
 
@@ -114,18 +114,18 @@ Four views: the always-on loop that decides when to think, the five-persona deba
 
   <rect x="280" y="328" width="400" height="56" rx="6" fill="var(--bg-elev)" stroke="var(--accent-dim)" stroke-width="1.5"></rect>
   <text x="480" y="352" text-anchor="middle" font-size="13" fill="var(--fg)">Research session</text>
-  <text x="480" y="370" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">the five-persona debate — next diagram</text>
+  <text x="480" y="370" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">the five-persona debate (next diagram)</text>
 </svg>
 </div>
 
-The daemon's core skill is restraint. systemd supervises it like a real service — watchdog pings from a task that never awaits LLM work (so a hung model call can't fake liveness), API keys via LoadCredential, memory caps, automatic restart — and every 15-minute tick decides whether now is worth spending money on. Sessions only open inside weekday research windows (with cooldowns) or when a fresh research signal lands outside them, and a daily $2 budget cap ends the day with a clean exit that a morning timer undoes. This loop is also where the "looks alive, does nothing" bug lived: the agent ran healthily for days while a stub trigger never fired, which is why the trigger now has deterministic tests for every window, weekday, cooldown, and daylight-saving edge.
+The daemon's core skill is restraint. systemd supervises it like a real service: watchdog pings from a task that never awaits LLM work, so a hung model call can't fake liveness, plus API keys via LoadCredential, memory caps, and automatic restart. Every 15-minute tick decides whether now is worth spending money on. Sessions only open inside weekday research windows (with cooldowns) or when a fresh research signal lands outside them, and a daily $2 budget cap ends the day with a clean exit that a morning timer undoes. This loop is also where the "looks alive, does nothing" bug lived: the agent ran healthily for days while a stub trigger never fired, which is why the trigger now has deterministic tests for every window, weekday, cooldown, and daylight-saving edge.
 
 ### The debate: five personas, two gates
 
 <div style="overflow-x: auto; margin: 2rem 0;">
 <svg viewBox="0 0 960 610" width="100%" style="min-width: 720px; display: block; font-family: var(--font-mono);" role="img" aria-labelledby="fa2-title fa2-desc">
   <title id="fa2-title">Research session flow</title>
-  <desc id="fa2-desc">Four data sources feed a typed evidence pool. Five personas — bull, bear, risk, reward, speculative — reason over it in parallel, each routable to a different LLM provider. A deterministic synthesizer applies a quorum vote and gates, an LLM judge scores the result, and only a passing briefing reaches the phone. A human places any trade manually, outside the system.</desc>
+  <desc id="fa2-desc">Four data sources feed a typed evidence pool. Five personas (bull, bear, risk, reward, speculative) reason over it in parallel, each routable to a different LLM provider. A deterministic synthesizer applies a quorum vote and gates, an LLM judge scores the result, and only a passing briefing reaches the phone. A human places any trade manually, outside the system.</desc>
   <defs>
     <marker id="fa2-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)"></path>
@@ -220,14 +220,14 @@ The daemon's core skill is restraint. systemd supervises it like a real service 
 </svg>
 </div>
 
-Evidence flows one direction. The pool is fetched once per session — six parallel fetches, cache-first, with the safety-state fetch failing closed — and frozen into a typed structure whose serialization is byte-identical across personas, because timestamp drift between five prompts was quietly collapsing the prompt-cache hit rate. The five personas argue in parallel under a 120-second timeout, each slot independently routable to a different provider (that routing is how an Anthropic-specific outage got diagnosed in one run), with a drill-in tool that checks the pool first and only makes a capped live call for claims the pool can't answer. Then two gates that don't share a failure mode: a deterministic synthesizer that applies a quorum vote — three-plus strong opinions make a strong call, and the risk persona holds a veto that marks the result contested — and a temperature-zero LLM judge whose borderline scores get rerun three times and majority-voted. Only a briefing that clears both reaches the phone.
+Evidence flows one direction. The pool is fetched once per session (six parallel fetches, cache-first, with the safety-state fetch failing closed) and frozen into a typed structure whose serialization is byte-identical across personas, because timestamp drift between five prompts was quietly collapsing the prompt-cache hit rate. The five personas argue in parallel under a 120-second timeout, each slot independently routable to a different provider (that routing is how an Anthropic-specific outage got diagnosed in one run), with a drill-in tool that checks the pool first and only makes a capped live call for claims the pool can't answer. Then two gates that don't share a failure mode: a deterministic synthesizer that applies a quorum vote (three-plus strong opinions make a strong call, and the risk persona holds a veto that marks the result contested), and a temperature-zero LLM judge whose borderline scores get rerun three times and majority-voted. Only a briefing that clears both reaches the phone.
 
 ### The research pipeline: RAG without a vector store
 
 <div style="overflow-x: auto; margin: 2rem 0;">
 <svg viewBox="0 0 960 310" width="100%" style="min-width: 720px; display: block; font-family: var(--font-mono);" role="img" aria-labelledby="fa3-title fa3-desc">
   <title id="fa3-title">Research ingest pipeline</title>
-  <desc id="fa3-desc">SEC filings, earnings calls and podcasts, and market signal sources are analyzed document by document by Claude into typed research signals stored in SQLite — structured facts, inferences, and sentiment with confidence scores, not embeddings.</desc>
+  <desc id="fa3-desc">SEC filings, earnings calls and podcasts, and market signal sources are analyzed document by document by Claude into typed research signals stored in SQLite: structured facts, inferences, and sentiment with confidence scores, not embeddings.</desc>
   <defs>
     <marker id="fa3-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)"></path>
@@ -261,11 +261,11 @@ Evidence flows one direction. The pool is fetched once per session — six paral
 
   <rect x="280" y="230" width="400" height="60" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
   <text x="480" y="256" text-anchor="middle" font-size="13" fill="var(--fg)">research_signal (SQLite)</text>
-  <text x="480" y="274" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">fact / inference / sentiment + confidence — no embeddings</text>
+  <text x="480" y="274" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">fact / inference / sentiment + confidence · no embeddings</text>
 </svg>
 </div>
 
-The retrieval layer is deliberately not a vector database. Every ingested document — filings, earnings-call transcripts, podcast episodes, analyst newsletters, 13F filings — gets read once by Claude and reduced to typed research signals: a fact, an inference, or a sentiment, with a confidence score, linked to the company and the source document. Personas then query structured signals instead of embedding-similarity chunks, which keeps retrieval explainable (every citation traces to a document) and keeps the whole thing runnable on a single SQLite file on a home server. Fresh signals landing outside research windows are also what the trigger's signal-boost pass reacts to.
+The retrieval layer is deliberately not a vector database. Every ingested document (filings, earnings-call transcripts, podcast episodes, analyst newsletters, 13F filings) gets read once by Claude and reduced to typed research signals: a fact, an inference, or a sentiment, with a confidence score, linked to the company and the source document. Personas then query structured signals instead of embedding-similarity chunks, which keeps retrieval explainable (every citation traces to a document) and keeps the whole thing runnable on a single SQLite file on a home server. Fresh signals landing outside research windows are also what the trigger's signal-boost pass reacts to.
 
 ### Safety and operations on a $2/day budget
 
@@ -289,7 +289,7 @@ The retrieval layer is deliberately not a vector database. Every ingested docume
 
   <rect x="530" y="24" width="410" height="76" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
   <text x="725" y="48" text-anchor="middle" font-size="12" fill="var(--fg)">Langfuse traces</text>
-  <text x="725" y="66" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">source of truth for spend — adopted after a local</text>
+  <text x="725" y="66" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">source of truth for spend; adopted after a local</text>
   <text x="725" y="80" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">token tracker under-counted a runaway day</text>
 
   <path d="M 255 100 L 255 136" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#fa4-a)"></path>
@@ -318,7 +318,7 @@ The retrieval layer is deliberately not a vector database. Every ingested docume
   <text x="725" y="290" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">every fetch and decision audited in SQLite;</text>
   <text x="725" y="304" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">one command reports config, DB, pipeline health</text>
 
-  <text x="255" y="356" text-anchor="middle" font-size="10" fill="var(--fg-muted)">three layers, no shared failure mode —</text>
+  <text x="255" y="356" text-anchor="middle" font-size="10" fill="var(--fg-muted)">three layers, no shared failure mode:</text>
   <text x="255" y="372" text-anchor="middle" font-size="10" fill="var(--fg-muted)">import drift, injected tool names, and path escapes each die separately</text>
   <text x="725" y="356" text-anchor="middle" font-size="10" fill="var(--fg-muted)">deploys via a script to the NUC, schema-versioned</text>
   <text x="725" y="372" text-anchor="middle" font-size="10" fill="var(--fg-muted)">migrations with a rollback path</text>
@@ -331,4 +331,4 @@ The agent's entire job is producing research briefings, never placing trades, an
 
 By the final spec the agent had closed out the original "make it useful" backlog. Multi-provider routing means an Anthropic outage can't take the whole system dark. The evidence pipeline replaced an earlier sprint's stub data with real filings, prices, and options. The idle-poll trigger fixed an agent that ran forever without ever deciding to act. A daily portfolio snapshot rounds out the picture for trend review. 17 specs, each with its own spec, plan, tasks, and research trail, drove the build end to end with Claude Code.
 
-The system still runs entirely on paper-trading credentials. That's a deliberate constraint, not a placeholder: the whole point was to prove the reasoning pipeline before ever touching a real order.
+The system has only ever run on paper-trading credentials. That's a deliberate constraint, not a placeholder: the whole point was to prove the reasoning pipeline before ever touching a real order.

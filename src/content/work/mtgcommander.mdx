@@ -65,13 +65,13 @@ skills:
     decision: "The conversational agent is a FastMCP tool server exposing the deck-building surface (search_cards, get_card, find_similar_cards, build_commander_deck, search_expert_knowledge, and more) as the same interface Claude Desktop or any other MCP client could connect to directly, not a bespoke API only the web chat can call. After launch, instead of guessing which tools the model actually needed, I audited real usage: 293 tool calls across 50 logged conversations."
     broke: "The audit showed a long tail of dead weight: 12 of the 30 exposed tools recorded 0 calls across all 50 conversations, while search_cards and get_card alone accounted for 160 of the 293 calls (55%). A flat, always-available tool list makes tool selection noisier for the model and gives no signal about which capability is actually doing anything."
     measured: "Built a frequency table (calls and percentage per tool) directly from the 50-conversation sample, then classified each tool as keep, merge, internalize, or needs-routing based on that data instead of intuition. search_expert_knowledge had 16 calls but got reclassified INTERNALIZE, since it turned out to be called by build_commander_deck and brainstorm_cards internally, never directly by the model in response to a user ask."
-    fixed: "0- and near-0-call tools got consolidated by their real verdict: explore_commanders (4 calls) merged into search_commanders_by_strategy, get_card_price (1 call) merged into price_card_list, and suggest_creator_decks (0 calls) got removed as a standalone tool since brainstorm_cards already baked it in. The remaining 0-call tools (rules lookups, post-build analysis) moved behind precondition-based routing — today a workflow state machine that detects intent and gates which tools are live each turn — so they only surface once their precondition step has actually run instead of sitting in front of the model on every single turn."
+    fixed: "0- and near-0-call tools got consolidated by their real verdict: explore_commanders (4 calls) merged into search_commanders_by_strategy, get_card_price (1 call) merged into price_card_list, and suggest_creator_decks (0 calls) got removed as a standalone tool since brainstorm_cards already baked it in. The remaining 0-call tools (rules lookups, post-build analysis) moved behind precondition-based routing (today a workflow state machine that detects intent and gates which tools are live each turn), so they only surface once their precondition step has actually run instead of sitting in front of the model on every single turn."
   - name: "RAG Knowledge Base and Insight Validation"
     domain: "RAG & Knowledge Systems"
     decision: "The expert knowledge base started as 32,807 raw podcast and YouTube transcript chunks retrieved by plain similarity search. I added a structured extraction layer, a Claude pipeline that discards noise (sponsor reads, intros, tangents) and pulls card-linked insights tagged with color identity, archetype, and a recency era, then validated every extracted insight against the card's real oracle text before it could be trusted."
     broke: "Two failures. Raw-chunk similarity returned fragments about the wrong commander, a sponsor read, and a personal anecdote for a specific-commander query. And the extracted insights themselves included hallucinations, an insight claiming a card had an ability it doesn't have, which an earlier regex validator couldn't catch because it matched a mechanic keyword anywhere near a card name (it flagged 'ward' inside 'reward')."
     measured: "I replaced the regex check with a Claude Sonnet Batch validator that reads each insight next to the card's actual oracle text and labels it VALID, HALLUCINATION, or OPINION. Submitting 33,040 insight-card pairs cost about $15, then I manually sampled the flags to separate real mechanic errors from stat claims that were merely outside the oracle text."
-    fixed: "Extraction turned 32,807 raw chunks into 41,790 structured insights; validation flagged 8,380, deleted 5,236 confirmed wrong mechanic claims, kept 3,144 false positives, and a partial-match pass recovered 1,208 more card links, leaving a knowledge base of 36,554 confirmed-clean insights. Recency weighting ranks post-2024 bracket-era content above older advice, and every new insight now runs the same validation before it is stored."
+    fixed: "Extraction turned 32,807 raw chunks into 41,790 structured insights. The validation pass over 33,040 insight-card pairs came back 20,051 valid, 8,380 flagged as hallucinated mechanic claims, and 4,609 set aside as subjective opinion rather than rules fact, and a follow-up review pass separated the genuine mechanic errors from false positives before anything was purged from retrieval. Recency weighting ranks post-2024 bracket-era content above older advice, and every new insight now runs the same validation before it is stored."
   - name: "User Memory and Personalization"
     domain: "Applied AI & Personalization"
     decision: "A Patreon supporter asked whether the AI could learn from his interactions and remember his personal deck-building style. I built a per-user memory layer: explicit facts that survive across chat sessions, surfaced to the model on each turn by semantic retrieval, and managed by the AI itself through 3 tools, remember, forget, and list_memories."
@@ -131,7 +131,7 @@ One box-wall diagram can't hold this system honestly, so here it is as the four 
 
   <rect x="180" y="118" width="440" height="64" rx="6" fill="var(--bg-elev)" stroke="var(--accent-dim)" stroke-width="1.5"></rect>
   <text x="400" y="144" text-anchor="middle" font-size="13" fill="var(--fg)">SvelteKit · Vercel AI SDK agent loop</text>
-  <text x="400" y="162" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">Claude Sonnet — failover + bake-off override are env flips</text>
+  <text x="400" y="162" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">Claude Sonnet · failover + bake-off override are env flips</text>
 
   <rect x="660" y="118" width="280" height="64" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
   <text x="800" y="144" text-anchor="middle" font-size="13" fill="var(--fg)">Workflow state machine</text>
@@ -151,11 +151,11 @@ One box-wall diagram can't hold this system honestly, so here it is as the four 
 
   <rect x="180" y="334" width="440" height="64" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
   <text x="400" y="360" text-anchor="middle" font-size="13" fill="var(--fg)">Supabase Postgres + pgvector</text>
-  <text x="400" y="378" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">33K+ cards · 36,554 validated insights · decks · chats (RLS)</text>
+  <text x="400" y="378" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">33K+ cards · 41K+ expert insights · decks · chats (RLS)</text>
 </svg>
 </div>
 
-A chat turn is an agent loop: the SvelteKit server runs the Vercel AI SDK with Claude Sonnet as the chat model (a failover model and a per-request bake-off override are each a single env flip), and the model works the FastMCP tool surface — the same tools any MCP client could call directly. Which tools the model even sees is decided per turn by a workflow state machine informed by the 293-call usage audit: paste in a 30-card list and it detects a net-deck import and swaps in the orient/swap/buylist tools; ask a fresh question and those stay out of the model's way. Every card name in the streamed answer is resolved against the real catalog before the reader sees it — the fabrication gate from the skill stories below.
+A chat turn is an agent loop: the SvelteKit server runs the Vercel AI SDK with Claude Sonnet as the chat model (a failover model and a per-request bake-off override are each a single env flip), and the model works the FastMCP tool surface, the same tools any MCP client could call directly. Which tools the model even sees is decided per turn by a workflow state machine informed by the 293-call usage audit: paste in a 30-card list and it detects a net-deck import and swaps in the orient/swap/buylist tools; ask a fresh question and those stay out of the model's way. Every card name in the streamed answer is resolved against the real catalog before the reader sees it: the fabrication gate from the skill stories below.
 
 ### Inside a deck build
 
@@ -225,7 +225,7 @@ A chat turn is an agent loop: the SvelteKit server runs the Vercel AI SDK with C
 </svg>
 </div>
 
-`build_commander_deck` is a staged engine, not one model call. The LLM owns the two genuinely creative stages — reading the thesis and choosing the specific cards that serve it — and deterministic code owns the solved problems: structural role counts from YAML package templates, declared-minimum conformance enforced through an explicit swap plan, a mana base audited pip-by-pip against the colors the deck actually needs, and a fabrication gate that refuses any card name that doesn't resolve in the catalog. Every stage reports its own status into the build metadata, so a degraded stage is visible in the result instead of silently swallowed.
+`build_commander_deck` is a staged engine, not one model call. The LLM owns the two genuinely creative stages, reading the thesis and choosing the specific cards that serve it, and deterministic code owns the solved problems: structural role counts from YAML package templates, declared-minimum conformance enforced through an explicit swap plan, a mana base audited pip-by-pip against the colors the deck actually needs, and a fabrication gate that refuses any card name that doesn't resolve in the catalog. Every stage reports its own status into the build metadata, so a degraded stage is visible in the result instead of silently swallowed.
 
 ### From deck to cart: the Mana Pool handoff
 
@@ -269,7 +269,7 @@ A chat turn is an agent loop: the SvelteKit server runs the Vercel AI SDK with C
 </svg>
 </div>
 
-When a reader clicks Buy, the deck goes to Mana Pool's cart optimizer for live pricing and availability — if a printing is out of stock, the request retries with it dropped instead of failing the whole cart — then through deck validation (legality, color identity, quantities) and comes back as a pre-filled cart URL carrying my affiliate ref. Payment completes on Mana Pool; there is no payment surface in this app at all. The engine can also build against a constrained pool — a single seller's inventory or the user's own collection — so the deck it hands over is actually fulfillable. That affiliate cut, plus Patreon and Ko-fi support, is the entire business model: the product is free forever, and the support links live on a support page, not in this pipeline.
+When a reader clicks Buy, the deck goes to Mana Pool's cart optimizer for live pricing and availability (if a printing is out of stock, the request retries with it dropped instead of failing the whole cart), then through deck validation (legality, color identity, quantities) and comes back as a pre-filled cart URL carrying my affiliate ref. Payment completes on Mana Pool; there is no payment surface in this app at all. The engine can also build against a constrained pool, a single seller's inventory or the user's own collection, so the deck it hands over is actually fulfillable. That affiliate cut, plus Patreon and Ko-fi support, is the entire business model: the product is free forever, and the support links live on a support page, not in this pipeline.
 
 ### The knowledge pipeline (offline)
 
@@ -285,7 +285,7 @@ When a reader clicks Buy, the deck goes to Mana Pool's cart optimizer for live p
 
   <rect x="20" y="20" width="290" height="68" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
   <text x="165" y="44" text-anchor="middle" font-size="12" fill="var(--fg)">Scryfall bulk data</text>
-  <text x="165" y="62" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">33K+ cards — nightly cron,</text>
+  <text x="165" y="62" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">33K+ cards · nightly cron,</text>
   <text x="165" y="76" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">gaps auto-healed by the ops audit</text>
 
   <rect x="335" y="20" width="290" height="68" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
@@ -296,7 +296,7 @@ When a reader clicks Buy, the deck goes to Mana Pool's cart optimizer for live p
   <rect x="650" y="20" width="290" height="68" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
   <text x="795" y="44" text-anchor="middle" font-size="12" fill="var(--fg)">Deck &amp; meta imports</text>
   <text x="795" y="62" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">Moxfield · EDHREC · tournament</text>
-  <text x="795" y="76" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">results — daily/weekly crons</text>
+  <text x="795" y="76" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">results · daily/weekly crons</text>
 
   <path d="M 165 88 L 165 106 L 480 106 L 480 122" fill="none" stroke="var(--accent)" stroke-width="1.5"></path>
   <path d="M 480 88 L 480 122" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#mtg4-a)"></path>
@@ -310,18 +310,18 @@ When a reader clicks Buy, the deck goes to Mana Pool's cart optimizer for live p
 
   <rect x="280" y="230" width="400" height="60" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
   <text x="480" y="256" text-anchor="middle" font-size="13" fill="var(--fg)">Supabase Postgres + pgvector</text>
-  <text x="480" y="274" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">36,554 validated insights · 768-dim embeddings</text>
+  <text x="480" y="274" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">41,790 structured insights · 768-dim embeddings</text>
 </svg>
 </div>
 
-Everything the agent knows arrives through a batch pipeline, deliberately not real time: validating a new insight against a card's oracle text before a user can see it matters more than shipping it a few minutes faster. Scryfall card data refreshes on a nightly cron and the ops audit auto-heals any gaps it finds; transcripts go through Whisper, then a Claude extraction pass that discards noise and pulls card-linked insights, then the oracle-text validator that deleted 5,236 hallucinated claims from the backfill and now gates every new insight the same way. It all lands in the one Supabase Postgres database — cards, insights, embeddings, decks, and conversations together, not a separate vector store.
+Everything the agent knows arrives through a batch pipeline, deliberately not real time: validating a new insight against a card's oracle text before a user can see it matters more than shipping it a few minutes faster. Scryfall card data refreshes on a nightly cron and the ops audit auto-heals any gaps it finds; transcripts go through Whisper, then a Claude extraction pass that discards noise and pulls card-linked insights, then the oracle-text validator that flagged 8,380 hallucinated mechanic claims across the backfill and now gates every new insight the same way. It all lands in the one Supabase Postgres database: cards, insights, embeddings, decks, and conversations together, not a separate vector store.
 
 ### Production operations
 
 <div style="overflow-x: auto; margin: 2rem 0;">
 <svg viewBox="0 0 960 488" width="100%" style="min-width: 720px; display: block; font-family: var(--font-mono);" role="img" aria-labelledby="mtg5-title mtg5-desc">
   <title id="mtg5-title">Production operations</title>
-  <desc id="mtg5-desc">Every PR passes CodeRabbit review and CI before deploying to two Railway services, which ship telemetry to Axiom, Sentry, PostHog, and Langfuse. Scheduled GitHub Actions watchers — a nightly ops audit, an hourly synthetic probe, and recurring quality evals — report into a Discord alerts channel, auto-filed GitHub issues, and Healthchecks.io dead-man heartbeats.</desc>
+  <desc id="mtg5-desc">Every PR passes CodeRabbit review and CI before deploying to two Railway services, which ship telemetry to Axiom, Sentry, PostHog, and Langfuse. Scheduled GitHub Actions watchers (a nightly ops audit, an hourly synthetic probe, and recurring quality evals) report into a Discord alerts channel, auto-filed GitHub issues, and Healthchecks.io dead-man heartbeats.</desc>
   <defs>
     <marker id="mtg5-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)"></path>
@@ -335,7 +335,7 @@ Everything the agent knows arrives through a batch pipeline, deliberately not re
   <path d="M 235 76 L 235 108" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#mtg5-a)"></path>
 
   <rect x="20" y="108" width="430" height="72" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
-  <text x="235" y="132" text-anchor="middle" font-size="13" fill="var(--fg)">Railway — production runtime</text>
+  <text x="235" y="132" text-anchor="middle" font-size="13" fill="var(--fg)">Railway · production runtime</text>
   <text x="235" y="150" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">FastMCP API (Python) · SvelteKit web</text>
   <text x="235" y="164" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)">+ a full staging twin</text>
 
@@ -349,7 +349,7 @@ Everything the agent knows arrives through a batch pipeline, deliberately not re
   <path d="M 725 180 L 725 224" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#mtg5-a)"></path>
 
   <rect x="20" y="224" width="920" height="128" rx="6" fill="none" stroke="var(--border)"></rect>
-  <text x="480" y="246" text-anchor="middle" font-size="11" fill="var(--fg-muted)">SCHEDULED WATCHERS — GITHUB ACTIONS CRON</text>
+  <text x="480" y="246" text-anchor="middle" font-size="11" fill="var(--fg-muted)">SCHEDULED WATCHERS · GITHUB ACTIONS CRON</text>
 
   <rect x="36" y="258" width="286" height="80" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
   <text x="179" y="282" text-anchor="middle" font-size="12" fill="var(--fg)">Nightly ops audit</text>
@@ -372,7 +372,7 @@ Everything the agent knows arrives through a batch pipeline, deliberately not re
 
   <rect x="20" y="396" width="290" height="72" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
   <text x="165" y="420" text-anchor="middle" font-size="12" fill="var(--fg)">Discord #alerts</text>
-  <text x="165" y="438" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">color-coded failure embeds —</text>
+  <text x="165" y="438" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">color-coded failure embeds;</text>
   <text x="165" y="452" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">every job reports here</text>
 
   <rect x="335" y="396" width="290" height="72" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
@@ -382,7 +382,7 @@ Everything the agent knows arrives through a batch pipeline, deliberately not re
 
   <rect x="650" y="396" width="290" height="72" rx="6" fill="var(--bg-elev)" stroke="var(--border-strong)"></rect>
   <text x="795" y="420" text-anchor="middle" font-size="12" fill="var(--fg)">Healthchecks.io</text>
-  <text x="795" y="438" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">dead-man heartbeat per cron —</text>
+  <text x="795" y="438" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">dead-man heartbeat per cron;</text>
   <text x="795" y="452" text-anchor="middle" font-size="9.5" fill="var(--fg-muted)">silence itself alerts</text>
 </svg>
 </div>
@@ -391,6 +391,6 @@ This is the part that doesn't demo well but matters most: the product runs itsel
 
 ## What shipped
 
-By spec 164 the platform had grown from a favor for Wes's cube into a real free product: a Mana Pool affiliate checkout handoff, a small Discord seeded from a card-marketplace partner, and a knowledge base that validates itself before storing anything new. The hallucination cleanup alone processed 33,040 insight-card pairs, deleted 5,236 confirmed hallucinations, and left the extraction pipeline validating every new insight against oracle text before storage, not just the backfill. The tool-routing audit replaced guesswork with 293 real tool calls across 50 conversations, consolidating or rerouting 12 tools that had 0 calls in the sample. All of these fixes came out of the same spec, plan, tasks, and research loop with Claude Code, not a rewrite from scratch.
+By spec 164 the platform had grown from a favor for Wes's cube into a real free product: a Mana Pool affiliate checkout handoff, a small Discord seeded from a card-marketplace partner, and a knowledge base that validates itself before storing anything new. The hallucination cleanup alone put 33,040 insight-card pairs through oracle-text validation, flagging 8,380 hallucinated mechanic claims, and left the extraction pipeline validating every new insight against oracle text before storage, not just the backfill. The tool-routing audit replaced guesswork with 293 real tool calls across 50 conversations, consolidating or rerouting 12 tools that had 0 calls in the sample. All of these fixes came out of the same spec, plan, tasks, and research loop with Claude Code, not a rewrite from scratch.
 
 The extraction pipeline still runs as a batch process, not real time. That's deliberate: validating a new insight against a card's oracle text before it ever reaches a user matters more than shipping it a few minutes faster.
